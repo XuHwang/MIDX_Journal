@@ -1,0 +1,8 @@
+embed_dim: 64
+n_head: 4
+n_layer: 2
+dim_feedforward: 128
+dropout: 0.1
+activation: gelu
+
+num_neg: 20

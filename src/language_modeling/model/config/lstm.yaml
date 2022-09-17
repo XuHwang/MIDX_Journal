@@ -1,0 +1,12 @@
+embed_dim: 64
+n_layer: 2
+hidden_size: 128
+dropout: 0.1
+
+num_neg: 20
+
+sampler: ~
+
+batch_size: 20
+learner: SGD
+learning_rate: 1

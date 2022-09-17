@@ -1,0 +1,2 @@
+monitor_metric: log_ppl
+embed_dim: 64

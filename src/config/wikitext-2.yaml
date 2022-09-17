@@ -1,0 +1,3 @@
+url: https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-2-v1.zip
+
+max_seq_len: 50
