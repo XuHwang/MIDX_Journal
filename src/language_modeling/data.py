@@ -22,7 +22,6 @@ class LanguageModelDataset(Dataset):
         self._map()
 
     def _load_dataset(self, name: str):
-        name_l = name.lower()
         data_folder = f"./data/{name}/"
         file_list = os.listdir(data_folder)
         for fname in file_list:
@@ -43,7 +42,7 @@ class LanguageModelDataset(Dataset):
             self.word2idx[k] = i+1
             word_freq.append(v)
         self.word2idx['<pad>'] = 0  # padding_index = 0
-        self.word_freq = np.array(word_freq)
+        self.word_freq = torch.tensor(word_freq)
 
     def _map(self):
         self._trn = list(map(lambda x:self.word2idx[x], self._trn))

@@ -7,6 +7,7 @@ from src.metric import perplexity
 class Transformer(BaseModel):
 
     def add_model_specific_args(parent_parser):
+        parent_parser = BaseModel.add_model_specific_args(parent_parser)
         parent_parser.add_argument_group('Transformer')
         parent_parser.add_argument("--d_model", type=int, default=64, help='embededding dimension')
         parent_parser.add_argument("--n_head", type=int, default=4, help='number of head in attention')
@@ -20,6 +21,7 @@ class Transformer(BaseModel):
         super().__init__(config, train_data)
         self.embedding = torch.nn.Embedding(self.num_items, self.config['embed_dim'], padding_idx=0)
         self.position_embedding = torch.nn.Embedding(train_data.max_seq_len+1, self.config['embed_dim'], padding_idx=0)
+        self.dropout = torch.nn.Dropout(p=self.config['dropout'])
         tfm_layer = torch.nn.TransformerEncoderLayer(
             d_model = self.config['embed_dim'],
             nhead = self.config['n_head'],
@@ -29,7 +31,11 @@ class Transformer(BaseModel):
             batch_first = True
         )
         self.transformer_encoder = torch.nn.TransformerEncoder(tfm_layer, self.config['n_layer'])
-        self.loss_func = SampledSoftmax(temperature=self.config['temperature'])
+        self._init_param()
+
+    def _init_param(self):
+        torch.nn.init.xavier_uniform_(self.embedding.weight)
+        torch.nn.init.constant_(self.position_embedding.weight, 0.0)
 
     def get_dataset_class():
         return LanguageModelDataset
@@ -42,10 +48,10 @@ class Transformer(BaseModel):
         position = position.view(1, -1).expand((B, -1))   # [B,L]
         position = position.masked_fill(src_padding_mask, 0)
         pos_emb = self.position_embedding(position) #[B,L,D]
-        tfm_input = seq_emb + pos_emb
+        tfm_input = self.dropout(seq_emb + pos_emb)
         src_mask = torch.triu(torch.ones((L, L),device=seq_emb.device),diagonal=1).bool()
         tfm_out = self.transformer_encoder(tfm_input, mask=src_mask, src_key_padding_mask=src_padding_mask) # [B,L,D]
-        return tfm_out
+        return self.dropout(tfm_out)
 
     def encode_target(self, target):
         return self.embedding(target)
@@ -54,7 +60,7 @@ class Transformer(BaseModel):
         label = batch['target']
         bs = label.size(0)
         query = self.construct_query(batch)
-        scores = self.score_fn(query, self.embedding.weight[1:])
+        scores = self.score_fn(query, self.embedding.weight)
         return {'log_ppl': perplexity(scores, label)}, bs
 
     @property

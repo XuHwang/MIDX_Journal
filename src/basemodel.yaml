@@ -3,16 +3,16 @@ weight_decay: 0
 learning_rate: 0.001
 scheduler: ~
 
-monitor_metric: ppl
+monitor_metric: ~
 early_stop_mode: min
 early_stop_patience: 10
 
 # temperature of softmax
 temperature: 1
 
-sampler: midx-uni
+sampler: ~
 
-epochs: 100
+epochs: 1000
 num_workers: 4
 batch_size: 256
 eval_batch_size: 256

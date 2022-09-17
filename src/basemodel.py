@@ -17,7 +17,7 @@ class BaseModel(LightningModule):
 
     @staticmethod
     def add_model_specific_args(parent_parser):
-        parent_parser.add_argument_group('Recommender')
+        parent_parser.add_argument_group('MIDX')
         parent_parser.add_argument("--learning_rate", type=float, default=0.001, help='learning rate')
         parent_parser.add_argument("--learner", type=str, default="adam", help='optimization algorithm')
         parent_parser.add_argument('--weight_decay', type=float, default=0, help='weight decay coefficient')
@@ -25,7 +25,6 @@ class BaseModel(LightningModule):
         parent_parser.add_argument('--batch_size', type=int, default=256, help='training batch size')
         parent_parser.add_argument('--eval_batch_size', type=int, default=128, help='evaluation batch size')
         parent_parser.add_argument('--val_n_epoch', type=int, default=1, help='valid epoch interval')
-        parent_parser.add_argument('--embed_dim', type=int, default=64, help='embedding dimension')
         parent_parser.add_argument('--early_stop_patience', type=int, default=10, help='early stop patience')
         parent_parser.add_argument('--gpu', type=int, action='append', default=None, help='gpu number')
         parent_parser.add_argument('--init_method', type=str, default='xavier_normal', help='init method for model')
@@ -49,6 +48,7 @@ class BaseModel(LightningModule):
         self.loss_fn = self.configure_loss()
         
         self.console_logger = logging.getLogger('MIDX')
+        self.console_logger.info(f"Number of Items: {self.num_items}")
         
     @staticmethod
     def get_dataset_class():
@@ -181,8 +181,9 @@ class BaseModel(LightningModule):
                 metric_dict[k] += v * bs
             total_bs += bs
         metric_dict = {k: v/total_bs for k,v in metric_dict.items()}
+        if 'log_ppl' in metric_dict:
+            metric_dict['ppl'] = torch.exp(metric_dict['log_ppl'])
         return metric_dict
-
 
     def get_optimizer(self, params):
         r"""Return optimizer for specific parameters.

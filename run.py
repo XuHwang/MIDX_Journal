@@ -8,8 +8,8 @@ from src.utils.utils import download_dataset
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='MIDX')
-    parser.add_argument('--model', '-m', type=str, default='LSTM', help='model name')
-    parser.add_argument('--dataset', '-d', type=str, default='penntreebank', help='dataset name')
+    parser.add_argument('--model', '-m', type=str, default='TransE', help='model name')
+    parser.add_argument('--dataset', '-d', type=str, default='fb15k', help='dataset name')
     args, command_line_args = parser.parse_known_args()
     model_class, model_conf = get_model(args.model)
     parser = model_class.add_model_specific_args(parser)
@@ -19,8 +19,12 @@ if __name__ == '__main__':
             if k in arg:
                 model_conf[k] = v
                 break
-
     
+    log_path = time.strftime(f"{model_class.__name__}-{args.dataset}-%Y-%m-%d-%H-%M-%S.log", \
+        time.localtime())
+    console_logger = get_logger(log_path)
+    tb_logger = TensorBoardLogger(save_dir=LOG_DIR, name="tensorboard")
+
     dataset_class = model_class.get_dataset_class()
     dataset_conf = get_dataset_config(args.dataset)
     
@@ -32,12 +36,6 @@ if __name__ == '__main__':
     trn, val, tst = dataset.build()
 
     model = model_class(model_conf, trn)
-    
-    tb_logger = TensorBoardLogger(save_dir=LOG_DIR, name="tensorboard")
-    log_path = time.strftime(f"{model_class.__name__}-{args.dataset}-%Y-%m-%d-%H-%M-%S.log", \
-        time.localtime())
-
-    console_logger = get_logger(log_path)
 
     trainer = Trainer(
         accelerator='gpu', 

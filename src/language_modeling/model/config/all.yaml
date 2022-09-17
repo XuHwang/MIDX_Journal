@@ -1,2 +1,2 @@
-monitor_metric: log_ppl
-embed_dim: 64
+monitor_metric: ppl
+early_stop_mode: min

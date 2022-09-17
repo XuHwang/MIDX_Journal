@@ -1,7 +1,7 @@
-embed_dim: 64
+embed_dim: 200
 n_layer: 2
 hidden_size: 128
-dropout: 0.1
+dropout: 0.5
 
 num_neg: 20
 
