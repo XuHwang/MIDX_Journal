@@ -13,8 +13,8 @@ python run.py -m=LSTM -d=penntreebank --sampler=midx-uni
 | Task | Model | Dataset |
 | --- | --- | --- |
 | LanguageModeling | [LSTM, Transformer] | [penntreebank, wikitext-2, wikitext-103] |
-| KnowledgeGraph | [HouseE] | |
-| ExtremeClassification | | [AmazonCat-13k, Delicious-200k, WikiLSHTC] |
+| KnowledgeGraph | [HouseE, TransE] | [fb15k, wn18, yago3-10] |
+| ExtremeClassification | [EcFc, ] | [AmazonCat-13k, Delicious-200k, WikiLSHTC] |
 
 Optional Sampler: [None, 'midx-uni', 'midx-pop'] (Default: None)
 

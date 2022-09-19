@@ -7,11 +7,24 @@ from src.basemodel import BaseModel
 
 class TransE(BaseModel):
 
+    def add_model_specific_args(parent_parser):
+        parent_parser = BaseModel.add_model_specific_args(parent_parser)
+        parent_parser.add_argument_group("TransE")
+        parent_parser.add_argument("--embed_dim", type=int, default=500, help='embedding size')
+        return parent_parser
+
     def __init__(self, config, train_data) -> None:
         super().__init__(config, train_data)
         self.entity_embedding = torch.nn.Embedding(self.num_items, self.config['embed_dim'], 0)
         self.relation_embedding = torch.nn.Embedding(train_data.num_relations, self.config['embed_dim'], 0)
-        self.score_fn = EuclideanScorer()
+        self.score_fn = EuclideanScorer(sqrt=True)
+        #TODO(@AngusHuang17): whether to try loss used in TransE (widely used in KGE papers)
+
+    def _init_param(self):
+        torch.nn.init.xavier_normal_(self.entity_embedding.weight)
+        torch.nn.init.xavier_normal_(self.relation_embedding.weight)
+        self.entity_embedding.weight.data[0, :] = 0.0
+        self.relation_embedding.weight.data[0, :] = 0.0
 
     def get_dataset_class():
         return KGDataset

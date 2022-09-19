@@ -24,6 +24,10 @@ class KGDataset(Dataset):
     def _load_dataset(self, name: str):
         data_folder = f"./data/{name}/"
         file_list = os.listdir(data_folder)
+        # TODO(@AngusHuang17): there are two methods to process valid and test data: raw and filter. 
+        # raw means keeping original datasets, filter means remove triplets with same input in train data while has different traget
+        # e.g. Train: (e1,r1,e2), Valid: (e1,r1,e3)
+        # here we use raw method
         for fname in file_list:
             path = os.path.join(data_folder, fname)
             if 'train' in fname:
@@ -105,6 +109,10 @@ class KGDataset(Dataset):
     @property
     def num_items(self):
         return len(self.entity2idx)   # padding included
+
+    @property
+    def item_freq(self):
+        return self.entity_freq
 
     @property
     def num_relations(self):

@@ -26,11 +26,17 @@ class CosineScorer(InnerProductScorer):
 
 
 class EuclideanScorer(InnerProductScorer):
+    def __init__(self, sqrt=False) -> None:
+        super().__init__()
+        self.sqrt = sqrt
+
     def forward(self, query, items):
         output = -2 * super().forward(query, items)
         output += torch.sum(torch.square(items), dim=-1)
         output += torch.sum(torch.square(query), dim=-1,
             keepdim=(query.dim()!=items.dim() or query.size(0)!=items.size(0)))
+        if self.sqrt:
+            output = torch.sqrt(output)
         return -output
 
 

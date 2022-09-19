@@ -35,6 +35,7 @@ class Transformer(BaseModel):
 
     def _init_param(self):
         torch.nn.init.xavier_uniform_(self.embedding.weight)
+        self.embedding.weight.data[0, :] = 0.0
         torch.nn.init.constant_(self.position_embedding.weight, 0.0)
 
     def get_dataset_class():

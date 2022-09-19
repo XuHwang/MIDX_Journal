@@ -24,6 +24,11 @@ class LSTM(BaseModel):
             dropout = self.config['dropout'],
             batch_first = True
         )
+        self._init_param()
+
+    def _init_param(self):
+        torch.nn.init.xavier_uniform_(self.embedding.weight)
+        self.embedding.weight.data[0, :] = 0.0
 
     def get_dataset_class():
         return LanguageModelDataset

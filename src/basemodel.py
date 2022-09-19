@@ -42,6 +42,7 @@ class BaseModel(LightningModule):
         else:
             self.val_metric = self.config['monitor_metric']
         self.num_items = train_data.num_items
+        self.item_freq = train_data.item_freq
         self.score_fn = InnerProductScorer()
 
         self.sampler = self.configure_sampler()
@@ -104,7 +105,7 @@ class BaseModel(LightningModule):
         if self.config['sampler'] == 'midx-uni':
             return MIDXSamplerUniform(self.num_items, 8, self.score_fn)
         elif self.config['sampler'] == 'midx-pop':
-            return MIDXSamplerPop(self.num_items, 8, self.score_fn)
+            return MIDXSamplerPop(self.item_freq, 8, self.score_fn)
         elif self.config['sampler'] is None:
             return None
         else:

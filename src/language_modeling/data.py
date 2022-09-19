@@ -89,6 +89,10 @@ class LanguageModelDataset(Dataset):
         return len(self.word2idx)   # padding included
 
     @property
+    def item_freq(self):
+        return self.word_freq
+
+    @property
     def max_seq_len(self):
         return self._max_seq_len
     
