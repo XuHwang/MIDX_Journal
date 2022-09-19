@@ -85,7 +85,7 @@ def parser_yaml(config_path):
     return ret
 
 def get_model(model_name: str):
-    model_submodule = ['language_modeling', 'knowledge_graph']
+    model_submodule = ['language_modeling', 'knowledge_graph', 'extreme_classification']
     model_file_name = model_name.lower()
     model_module = None
     for submodule in model_submodule:

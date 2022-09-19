@@ -1,4 +1,4 @@
-import torch
+import torch, sys
 import torch.nn.functional as F 
 
 def perplexity(pred, target):
@@ -33,4 +33,41 @@ def hits(diff, k):
     rank = (diff > 0).float().sum(-1) + 1
     hits = (rank <= k).float().mean()
     return hits
-    
+
+def precision(pred, target, k):
+    r"""Calculate the precision.
+    Precision are defined as:
+    .. math::
+        Precision = \frac{TP}{TP+FP}
+    Args:
+        pred(torch.BoolTensor): [B, num_items]. The prediction result of the model with bool type values. 
+            If the value in the j-th column is `True`, the j-th highest item predicted by model is right.
+        target(torch.FloatTensor): [B, num_target]. The ground truth.
+    Returns:
+        torch.FloatTensor: a 0-dimensional tensor.
+    """
+    output = pred[:, :k].sum(dim=-1).float() / k
+    return output.mean()
+
+
+def _dcg(pred, k):
+    k = min(k, pred.size(1))
+    denom = torch.log2(torch.arange(k).type_as(pred) + 2.0).view(1, -1)
+    return (pred[:, :k] / denom).sum(dim=-1)
+
+
+def ndcg(pred, target, k):
+    r"""Calculate the Normalized Discounted Cumulative Gain(NDCG).
+    Args:
+        pred(torch.BoolTensor): [B, num_items]. The prediction result of the model with bool type values. 
+            If the value in the j-th column is `True`, the j-th highest item predicted by model is right.
+        target(torch.FloatTensor): [B, num_target]. The ground truth.
+    Returns:
+        torch.FloatTensor: a 0-dimensional tensor.
+    """
+    pred_dcg = _dcg(pred.float(), k)
+    ideal_dcg = _dcg(torch.sort((target > 0).float(), descending=True)[0], k) 
+    all_irrelevant = torch.all(target <= sys.float_info.epsilon, dim=-1)
+    pred_dcg[all_irrelevant] = 0
+    pred_dcg[~all_irrelevant] /= ideal_dcg[~all_irrelevant]
+    return pred_dcg.mean()
