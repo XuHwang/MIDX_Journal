@@ -23,7 +23,7 @@ if __name__ == '__main__':
     log_path = time.strftime(f"{model_class.__name__}-{args.dataset}-%Y-%m-%d-%H-%M-%S.log", \
         time.localtime())
     console_logger = get_logger(log_path)
-    tb_logger = TensorBoardLogger(save_dir=LOG_DIR, name="tensorboard")
+    tb_logger = TensorBoardLogger(save_dir=LOG_DIR, name="tensorboard/" + log_path)
 
     dataset_class = model_class.get_dataset_class()
     dataset_conf = get_dataset_config(args.dataset)

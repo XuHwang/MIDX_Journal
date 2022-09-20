@@ -125,6 +125,7 @@ class ExtremeClassDataset(Dataset):
         self._trn = (features[trn], labels[trn])
         self._val = (features[vld], labels[vld])
         self._tst = (features[tst], labels[tst])
+        self.label_freq =  torch.from_numpy(labels[trn].sum(0)).squeeze()
 
 
     def _split_data_indices(self, num_samples:int, ratio:list=None):    
@@ -174,7 +175,9 @@ class ExtremeClassDataset(Dataset):
     def num_items(self):
         return self.num_labels + 1
     
-    
+    @property
+    def item_freq(self):
+        return self.label_freq
 
 
 

@@ -51,7 +51,7 @@ class EcFc(BaseModel):
         query = self.construct_query(batch)
         scores = self.score_fn(query, self.item_vector)
         topk_scores, topk_items = torch.topk(input=scores, k=topk, dim=-1)
-
+        topk_items = topk_items + 1
         target, _ = batch['target'].sort()
         idx_ = torch.searchsorted(target, topk_items)
         idx_[idx_ == target.size(1)] = target.size(1) - 1

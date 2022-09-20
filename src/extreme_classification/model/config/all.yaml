@@ -1,8 +1,7 @@
 monitor_metric: prec@1
+early_stop_mode: max
+
 cutoff: [1,3,5]
 topk: 10
-
-early_stop_mode: min
-
 embed_dim: 128
-hidden_states: 200
+hidden_states: ~
