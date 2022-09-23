@@ -170,7 +170,7 @@ class MIDXSamplerUniform(Sampler):
                  torch.bmm(c1, q1.unsqueeze(-1))).squeeze(-1)  # B x L1
         else:
             r = (q0 * c0).sum(-1) + (q1 * c1).sum(-1)
-            pos_items_ = pos_items_.unsqueeze(1)
+            # pos_items_ = pos_items_.unsqueeze(1)
         if not hasattr(self, 'p'):
             return r.view_as(pos_items)
         else:
@@ -191,7 +191,7 @@ class MIDXSamplerPop(MIDXSamplerUniform):
             pop_count = torch.log(pop_count + 1) + 1e-6
         elif mode == 2:
             pop_count = pop_count**0.75
-        self.pop_count = torch.nn.Parameter(pop_count, requires_grad=False)
+        self.pop_count = torch.nn.Parameter(pop_count[:-1], requires_grad=False) # TODO: check 
 
     def _update(self, item_embs, cd0m, cd1m):
         if not isinstance(self.scorer, EuclideanScorer):

@@ -11,7 +11,7 @@ from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from .scorer import InnerProductScorer
 from .loss_func import FullSoftmax, SampledSoftmax
 from .utils import SAVE_DIR, color_dict
-from .sampler import MIDXSamplerUniform, MIDXSamplerPop
+from .sampler import UniformSampler, PopularSampler,  MIDXSamplerUniform, MIDXSamplerPop, MIDXSamplerUniform, MIDXSamplerPop, SphereSampler, RFFSampler
 
 class BaseModel(LightningModule):
 
@@ -106,6 +106,15 @@ class BaseModel(LightningModule):
             return MIDXSamplerUniform(self.num_items, 8, self.score_fn)
         elif self.config['sampler'] == 'midx-pop':
             return MIDXSamplerPop(self.item_freq, 8, self.score_fn)
+        elif self.config['sampler'] == 'uni':
+            return UniformSampler(self.num_items, self.score_fn)
+        elif self.config['sampler'] == 'pop':
+            return PopularSampler(self.item_freq, self.score_fn)
+        elif self.config['sampler'] == 'sphere': # TODO: comfigurations
+            return SphereSampler(self.num_items, self.score_fn)
+        elif self.config['sampler'] == 'rff':
+            return RFFSampler(self.num_items, self.score_fn)
+
         elif self.config['sampler'] is None:
             return None
         else:

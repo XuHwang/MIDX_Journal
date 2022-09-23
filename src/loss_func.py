@@ -6,10 +6,13 @@ class FullSoftmax(torch.nn.Module):
         self.T = temperature
 
     def forward(self, pos_score, full_score):
-        output = torch.logsumexp(full_score, dim=-1, keepdim=True) - pos_score
-        notpadnum = torch.logical_not(torch.isinf(pos_score)).float().sum()
-        output = torch.nan_to_num(output, posinf=0, nan=0).sum() / notpadnum
-        return output
+        if full_score.dim() > pos_score.dim():
+            return torch.mean(torch.logsumexp(full_score, dim=-1) - pos_score) # TODO: check the code
+        else:
+            output = torch.logsumexp(full_score, dim=-1, keepdim=True) - pos_score
+            notpadnum = torch.logical_not(torch.isinf(pos_score)).float().sum(-1)
+            output = torch.nan_to_num(output, posinf=0).sum() / notpadnum
+            return output
 
 
 class SampledSoftmax(torch.nn.Module):
