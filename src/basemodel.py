@@ -11,7 +11,10 @@ from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 from .scorer import InnerProductScorer
 from .loss_func import FullSoftmax, SampledSoftmax
 from .utils import SAVE_DIR, color_dict
-from .sampler import UniformSampler, PopularSampler,  MIDXSamplerUniform, MIDXSamplerPop, MIDXSamplerUniform, MIDXSamplerPop, SphereSampler, RFFSampler
+from .sampler import (UniformSampler, PopularSampler, 
+                      MIDXSamplerUniform, MIDXSamplerPop, 
+                      SphereSampler, RFFSampler,
+                      DynamicSampler, SIR)
 
 class BaseModel(LightningModule):
 
@@ -114,7 +117,10 @@ class BaseModel(LightningModule):
             return SphereSampler(self.num_items, self.score_fn)
         elif self.config['sampler'] == 'rff':
             return RFFSampler(self.num_items, self.score_fn)
-
+        elif self.config['sampler'] == 'dns':
+            return DynamicSampler(self.num_items, self.score_fn)
+        elif self.config['sampler'] == 'sir':
+            return SIR(self.num_items, self.score_fn)
         elif self.config['sampler'] is None:
             return None
         else:

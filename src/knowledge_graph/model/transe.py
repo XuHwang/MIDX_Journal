@@ -17,7 +17,8 @@ class TransE(BaseModel):
         super().__init__(config, train_data)
         self.entity_embedding = torch.nn.Embedding(self.num_items, self.config['embed_dim'], 0)
         self.relation_embedding = torch.nn.Embedding(train_data.num_relations, self.config['embed_dim'], 0)
-        self.score_fn = EuclideanScorer(sqrt=True)
+        self.score_fn = EuclideanScorer(sqrt=False)
+        self.sampler = self.configure_sampler()
         #TODO(@AngusHuang17): whether to try loss used in TransE (widely used in KGE papers)
 
     def _init_param(self):
