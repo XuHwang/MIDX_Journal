@@ -1,4 +1,3 @@
-from cmath import isinf
 import torch
 
 class FullSoftmax(torch.nn.Module):
@@ -34,6 +33,5 @@ class SampledSoftmax(torch.nn.Module):
             new_pos.squeeze_(-1)
             output.squeeze_(-1)
         notpadnum = torch.logical_not(torch.isinf(new_pos)).float().sum(-1)
-        # import pdb; pdb.set_trace()
         output = torch.nan_to_num(output, posinf=0, nan=0).sum(-1) / notpadnum
         return torch.mean(output)
