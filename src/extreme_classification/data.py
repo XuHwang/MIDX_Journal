@@ -1,4 +1,3 @@
-from distutils.command.config import config
 import os
 import copy
 import random
@@ -87,19 +86,36 @@ class ExtremeClassDataset(Dataset):
         data_folder = f"./data/{name}/"
         file_list = os.listdir(data_folder)
 
-        assert len(file_list) == 1
-        # Different from KG and LM, there is only one total dataset
-        fname = file_list[0]
-        path = os.path.join(data_folder, fname)
+        if len(file_list) == 1:
+            # one whole dataset
+            fname = file_list[0]
+            path = os.path.join(data_folder, fname)
+            features, labels, num_feat, num_labels = self._load_from_bow(path)
 
-        features, labels, num_samples, num_feat, num_labels = self._load_from_bow(path)
+            self.num_feat = num_feat
+            self.num_labels = num_labels
 
+            self._split_data(features, labels, self.config['split_ratio'])
 
-        self.num_feat = num_feat
-        self.num_labels = num_labels
-
-        self._split_data(features, labels, num_samples, self.config['split_ratio'])
-
+        elif len(file_list) == 2:
+            # train.txt & test.txt
+            for fname in file_list:
+                if 'train' in fname:
+                    path = os.path.join(data_folder, fname)
+                    features, labels, num_feat, num_labels = self._load_from_bow(path)
+                    
+                    self.num_feat = num_feat
+                    self.num_labels = num_labels
+                
+                elif 'test' in fname:
+                    path = os.path.join(data_folder, fname)
+                    features_t, labels_t, num_feat_t, num_labels_t = self._load_from_bow(path)
+                
+                else:
+                    pass
+            
+            assert (num_feat == num_feat_t) and (num_labels == num_labels_t)
+            self._split_data_train(features, labels, features_t, labels_t, self.config['split_ratio'])
     
     def _load_from_bow(self, filename: str, header: bool = True, dtype: str='float32', zero_based:bool=True):
         # Use sklearn load_svmlight_file to read data
@@ -118,23 +134,40 @@ class ExtremeClassDataset(Dataset):
             labels = ll_to_sparse(
             labels, dtype=dtype, zero_based=zero_based, shape=_l_shape)
             nonzeros_rows = labels.getnnz(-1) > 0 # remove empty labels
-        return features[nonzeros_rows], labels[nonzeros_rows], nonzeros_rows.sum(), num_feat, num_labels
+        return features[nonzeros_rows], labels[nonzeros_rows], num_feat, num_labels
 
-    def _split_data(self, features: spmatrix, labels: spmatrix, num_samples: int, split_ratio: list = [0.8, 0.1,0.1]  ):
-        trn, vld, tst = self._split_data_indices(num_samples, split_ratio)
+    def _split_data(self, features: spmatrix, labels: spmatrix, split_ratio: list = [0.8, 0.1,0.1]):
+        trn, vld, tst = self._split_data_indices(features.shape[0], split_ratio)
 
         self._trn = (features[trn], labels[trn])
         self._val = (features[vld], labels[vld])
         self._tst = (features[tst], labels[tst])
         self.label_freq =  torch.from_numpy(labels[trn].sum(0)).squeeze()
         self.label_freq = torch.cat((torch.zeros(1), self.label_freq))
+    
+    def _split_data_train(self, features_x: spmatrix, labels_x: spmatrix, features_y: spmatrix, labels_y: spmatrix, split_ratio: float=0.8):
+        if isinstance(split_ratio, float):
+            split_ratio = split_ratio if (split_ratio > 0 ) and (split_ratio < 1) else 0.8
+        else:
+            split_ratio = 0.8
+        indices_list = list(range(features_x.shape[0]))
+        random.shuffle(indices_list)
+        num_trn = int(features_x.shape[0] * split_ratio)
+        trn, vld = indices_list[:num_trn], indices_list[num_trn:]
+
+        self._trn = (features_x[trn], labels_x[trn])
+        self._val = (features_x[vld], labels_x[vld])
+        self._tst = (features_y, labels_y)
+        self.label_freq =  torch.from_numpy(features_x[trn].sum(0)).squeeze()
+        self.label_freq = torch.cat((torch.zeros(1), self.label_freq))
 
 
-    def _split_data_indices(self, num_samples:int, ratio:list=None):    
-        if ratio is None:
+    def _split_data_indices(self, num_samples:int, ratio:list=None): 
+        if isinstance(ratio, list):
+            ratio = ratio if (np.sum(ratio) - 1.0 ) < 1e-6 else [0.8, 0.1, 0.1]
+        else:
             ratio = [0.8, 0.1, 0.1]
         
-        assert (np.sum(ratio) - 1.0 ) < 1e-6
         indices_list = list(range(num_samples))
         random.shuffle(indices_list)
         train_ratio, valid_ratio = ratio[0], ratio[1]
