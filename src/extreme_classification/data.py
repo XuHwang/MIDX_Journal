@@ -117,7 +117,8 @@ class ExtremeClassDataset(Dataset):
             features, labels = load_svmlight_file(f, n_features=num_feat, multilabel=True, zero_based=zero_based)
             labels = ll_to_sparse(
             labels, dtype=dtype, zero_based=zero_based, shape=_l_shape)
-        return features, labels, num_samples, num_feat, num_labels
+            nonzeros_rows = labels.getnnz(-1) > 0 # remove empty labels
+        return features[nonzeros_rows], labels[nonzeros_rows], nonzeros_rows.sum(), num_feat, num_labels
 
     def _split_data(self, features: spmatrix, labels: spmatrix, num_samples: int, split_ratio: list = [0.8, 0.1,0.1]  ):
         trn, vld, tst = self._split_data_indices(num_samples, split_ratio)
