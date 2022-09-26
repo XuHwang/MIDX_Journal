@@ -48,9 +48,21 @@ class SphereSampler(KernelSampler):
     
 
 class RFFSampler(KernelSampler):
+    """
+        Refer to the paper: Sampled Softmax with Random Fourier Features
+
+        
+        More cases can refer to : 
+        [1] https://www.tensorflow.org/api_docs/python/tf/keras/layers/experimental/RandomFourierFeatures
+        [2] http://random-walks.org/content/misc/rff/rff.html
+    """
     def __init__(self, num_items, scorer_fn=None):
         super().__init__(num_items, scorer_fn)
-        self.temperature = 5 # best temperature 1/ sqrt(tau), tau denotes the temp for softmax function
+        self.temperature = 5 # \tau denotes the temp for softmax function #TODO: implememt into softmax loss
+        # According to the paper, "the typical choice ranges from 5 to 30."
+        self.nu = 4.0  # nu denotes \nu
+        # According to the paper, the value of \nu should be smaller than temperature (\tau)
+        # In experiments, \nu = 4 achieves the best performance
         self.num_random_features = 32 # config parameter
         self.inner = InnerProductScorer()
     
@@ -64,18 +76,17 @@ class RFFSampler(KernelSampler):
         shape.append(num_random_features)
         shape.append(item_vec.shape[-1])
 
-
-        # shape = item_vec.shape[:-1] + [num_random_features, item_vec.shpe[-1]]  
         sampled_w = torch.normal(0, math.sqrt(1/temp), size=tuple(shape), device=item_vec.device)
-        # _scores = (sampled_w * item_vec.unsqueeze(1)).sum(-1)
         _scores = func(item_vec, sampled_w)
+
+        # A question is why sin ?
         return 1/math.sqrt(num_random_features) * torch.cat([torch.cos(_scores), torch.sin(_scores)], dim=-1)
     
     def update(self, item_embs, max_iter=30):
-        self.item_vec = RFFSampler.kernel_vec(item_embs, self.temperature, self.num_random_features)
+        self.item_vec = RFFSampler.kernel_vec(item_embs, self.nu, self.num_random_features)
     
     def get_logits(self, query):
-        kernel_query_vec = RFFSampler.kernel_vec(query, self.temperature, self.num_random_features)
+        kernel_query_vec = RFFSampler.kernel_vec(query, self.nu, self.num_random_features)
         return self.inner(kernel_query_vec, self.item_vec)
     
 
