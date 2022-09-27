@@ -16,3 +16,6 @@ epochs: 1000
 num_workers: 4
 batch_size: 256
 eval_batch_size: 256
+
+fix_seed: True
+seed: 10

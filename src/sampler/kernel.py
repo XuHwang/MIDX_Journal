@@ -29,7 +29,7 @@ class KernelSampler(Sampler):
             neg_prob = torch.log( torch.gather(logits, -1, neg_items) * num_neg) - torch.reshape(torch.log(logits.sum(-1)), [*logits.shape[:-1], 1])
 
         if pos_items is not None:
-            pos_prob = pos_items.new_zeros(*pos_items.shape)
+            pos_prob = torch.zeros_like(pos_items)
             return pos_prob, neg_items.reshape(*query.shape[:-1], -1) + 1, neg_prob.reshape(*query.shape[:-1], -1)
         
         else:
@@ -64,7 +64,6 @@ class RFFSampler(KernelSampler):
         # According to the paper, the value of \nu should be smaller than temperature (\tau)
         # In experiments, \nu = 4 achieves the best performance
         self.num_random_features = 32 # config parameter
-        self.inner = InnerProductScorer()
     
     @staticmethod
     def kernel_vec(item_vec, temp, num_random_features):
@@ -87,7 +86,7 @@ class RFFSampler(KernelSampler):
     
     def get_logits(self, query):
         kernel_query_vec = RFFSampler.kernel_vec(query, self.nu, self.num_random_features)
-        return self.inner(kernel_query_vec, self.item_vec)
+        return self.scorer(kernel_query_vec, self.item_vec)
     
 
 

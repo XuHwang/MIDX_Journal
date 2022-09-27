@@ -6,6 +6,7 @@ import torch
 from torch import optim
 import pytorch_lightning
 from pytorch_lightning import LightningModule
+from pytorch_lightning.utilities.seed import seed_everything
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 from .scorer import InnerProductScorer
@@ -40,6 +41,8 @@ class BaseModel(LightningModule):
         super().__init__()
         self.config = config
         self.target_vector = None
+        if self.config['fix_seed']:
+            seed_everything(self.config['seed'])
         if self.config['monitor_metric'] is None:
             self.val_metric = 'train_loss'
         else:
@@ -113,7 +116,7 @@ class BaseModel(LightningModule):
             return UniformSampler(self.num_items, self.score_fn)
         elif self.config['sampler'] == 'pop':
             return PopularSampler(self.item_freq, self.score_fn)
-        elif self.config['sampler'] == 'sphere': # TODO: comfigurations
+        elif self.config['sampler'] == 'sphere': # TODO: configurations
             return SphereSampler(self.num_items, self.score_fn)
         elif self.config['sampler'] == 'rff':
             return RFFSampler(self.num_items, self.score_fn)
