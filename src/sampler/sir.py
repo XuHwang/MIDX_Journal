@@ -20,10 +20,12 @@ class SIR(Sampler):
             resample_idx = torch.multinomial(imp_prob, num_samples=num_neg[1])
             neg_id = torch.gather(rand_item_idx, -1, resample_idx).view(*shape, num_neg[1])
             log_neg_prob = torch.gather(score, -1, resample_idx).view(*shape, num_neg[1])
+            log_neg_prob = torch.zeros_like(log_neg_prob)
             if pos_items is not None:
-                pos_vec = torch.zeros((*pos_items.shape, self.item_vector.size(-1)), device=query.device)
-                pos_vec[pos_items > 0] = F.embedding(pos_items[pos_items>0]-1, self.item_vector)
-                log_pos_prob = self.scorer(query, pos_vec)
+                # pos_vec = torch.zeros((*pos_items.shape, self.item_vector.size(-1)), device=query.device)
+                # pos_vec[pos_items > 0] = F.embedding(pos_items[pos_items>0]-1, self.item_vector)
+                # log_pos_prob = self.scorer(query, pos_vec)
+                log_pos_prob = torch.zeros_like(pos_items, dtype=torch.float)
                 return log_pos_prob.detach(), neg_id, log_neg_prob.detach()
             else:
                 return neg_id, log_neg_prob.detach()
