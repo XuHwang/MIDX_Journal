@@ -33,7 +33,8 @@ class BaseModel(LightningModule):
         parent_parser.add_argument('--gpu', type=int, action='append', default=None, help='gpu number')
         parent_parser.add_argument('--init_method', type=str, default='xavier_normal', help='init method for model')
         parent_parser.add_argument('--init_range', type=float, help='init range for some methods like normal')
-        parent_parser.add_argument('--sampler', type=str, default=None, help='which sampler to use')
+        # parent_parser.add_argument('--sampler', type=str, default=None, help='which sampler to use')
+        parent_parser.add_argument('--num_cluster', type=int, default=16, help='number of codewords for midx-based samplers')
         return parent_parser
 
 
@@ -56,7 +57,11 @@ class BaseModel(LightningModule):
         
         self.console_logger = logging.getLogger('MIDX')
         self.console_logger.info(f"Number of Items: {self.num_items}")
-        
+
+        if hasattr(train_data, "num_feat"):
+            self.console_logger.info(f"Number of Feat: {train_data.num_feat}")
+            self.num_feat = train_data.num_feat # work for extreme classification task
+
     @staticmethod
     def get_dataset_class():
         pass
@@ -109,9 +114,9 @@ class BaseModel(LightningModule):
 
     def configure_sampler(self):
         if self.config['sampler'] == 'midx-uni':
-            return MIDXSamplerUniform(self.num_items, 8, self.score_fn)
+            return MIDXSamplerUniform(self.num_items, self.config['num_cluster'], self.score_fn)
         elif self.config['sampler'] == 'midx-pop':
-            return MIDXSamplerPop(self.item_freq, 8, self.score_fn)
+            return MIDXSamplerPop(self.item_freq, self.config['num_cluster'], self.score_fn)
         elif self.config['sampler'] == 'uni':
             return UniformSampler(self.num_items, self.score_fn)
         elif self.config['sampler'] == 'pop':

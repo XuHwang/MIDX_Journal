@@ -120,8 +120,9 @@ class RemoveColorFilter(logging.Filter):
             record.msg = ansi_escape.sub('', str(record.msg))
         return True
 
-def add_file_handler(logger: logging.Logger, file_path: str, formatter: logging.Formatter = None):
-    log_file_dir = os.path.join(LOG_DIR, 'logs/')
+def add_file_handler(logger: logging.Logger, log_dir:str, file_path: str, formatter: logging.Formatter = None):
+    # log_file_dir = os.path.join(LOG_DIR, 'logs/')
+    log_file_dir = os.path.join(log_dir, file_path)
     if not os.path.exists(log_file_dir):
         os.makedirs(log_file_dir)
     file_handler = logging.FileHandler(os.path.join(log_file_dir, file_path))
@@ -133,7 +134,7 @@ def add_file_handler(logger: logging.Logger, file_path: str, formatter: logging.
     logger.addHandler(file_handler)
     return logger
 
-def get_logger(file_path: str = None):
+def get_logger(log_dir, file_path: str = None):
     FORMAT = '[%(asctime)s] %(levelname)s %(message)s'
     logger = logging.getLogger('MIDX')
 
@@ -145,7 +146,7 @@ def get_logger(file_path: str = None):
     logger.addHandler(stream_handler)
 
     if file_path is not None:
-        logger = add_file_handler(logger, file_path, formatter)
+        logger = add_file_handler(logger, log_dir, file_path, formatter)
     return logger
 
 

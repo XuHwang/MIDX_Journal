@@ -1,4 +1,4 @@
-import time
+import time, os
 import argparse
 from src.utils import color_dict_normal, get_model, LOG_DIR, get_logger, get_dataset_config
 from pytorch_lightning import Trainer
@@ -10,6 +10,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='MIDX')
     parser.add_argument('--model', '-m', type=str, default='TransE', help='model name')
     parser.add_argument('--dataset', '-d', type=str, default='fb15k', help='dataset name')
+    parser.add_argument('--sampler', '-s', type=str, default=None, help='which sampler to use')
+    parser.add_argument('--log_path', '-p', type=str, default='./log', help='log path to save files')
     args, command_line_args = parser.parse_known_args()
     model_class, model_conf = get_model(args.model)
     parser = model_class.add_model_specific_args(parser)
@@ -19,11 +21,12 @@ if __name__ == '__main__':
             if k in arg:
                 model_conf[k] = v
                 break
-    
-    log_path = time.strftime(f"{model_class.__name__}-{args.dataset}-%Y-%m-%d-%H-%M-%S.log", \
+
+    log_path = time.strftime(f"{model_class.__name__}-{args.dataset}-{args.sampler}-%Y-%m-%d-%H-%M-%S.log", \
         time.localtime())
-    console_logger = get_logger(log_path)
-    tb_logger = TensorBoardLogger(save_dir=LOG_DIR, name="tensorboard/" + log_path)
+    console_logger = get_logger(args.log_path,log_path)
+    # tb_logger = TensorBoardLogger(save_dir=LOG_DIR, name="tensorboard/" + log_path)
+    tb_logger = TensorBoardLogger(save_dir=os.path.join(args.log_path,  log_path + "/tensorboard"), name=log_path)
 
     dataset_class = model_class.get_dataset_class()
     dataset_conf = get_dataset_config(args.dataset)

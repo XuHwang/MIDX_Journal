@@ -11,8 +11,6 @@ class EcFc(BaseModel):
         
         self.class_embedding = torch.nn.Embedding(self.num_items, self.config['embed_dim'], padding_idx=0)
 
-        self.mlp_layers = nn.Sequential()
-        
         if isinstance(self.config['hidden_states'], int):
             dims = [self.config['hidden_states'], self.config['embed_dim']]
         elif isinstance(self.config['hidden_states'], list):
@@ -23,22 +21,26 @@ class EcFc(BaseModel):
         else:
             raise NotSupportedErr('Unsupported type hidden states')
 
-
-        for idx in range(len(dims)):
-            if idx == 0:
-                self.mlp_layers.add_module('emb_layer', nn.Linear(train_data.num_feat, dims[idx]))
-            else:
+        self.feat_embedding = torch.nn.Embedding(self.num_feat + 1, dims[0], padding_idx=0)
+        
+        if len(dims) > 1:
+            self.mlp_layers = nn.Sequential()
+        
+            for idx in range(1, len(dims)):
                 self.mlp_layers.add_module('fc_{}'.format(idx), nn.Linear(dims[idx-1], dims[idx]))
-            
-            if idx < (len(dims) - 1):
-                self.mlp_layers.add_module('act_{}'.format(idx), nn.ReLU())
+
+                if idx < (len(dims) - 1):
+                    self.mlp_layers.add_module('act_{}'.format(idx), nn.ReLU())
 
 
     def get_dataset_class():
         return ExtremeClassDataset
     
     def construct_query(self, batch):
-        return self.mlp_layers(batch['feat'])
+        res = (self.feat_embedding(batch['feat_col']) * batch['feat_value'].unsqueeze(-1)).sum(1)
+        if hasattr(self, "mlp_layers"):
+            res = self.mlp_layers(res)
+        return res
     
     def encode_target(self, target):
         return self.class_embedding(target)

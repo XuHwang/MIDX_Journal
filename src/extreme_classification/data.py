@@ -94,7 +94,6 @@ class ExtremeClassDataset(Dataset):
 
             self.num_feat = num_feat
             self.num_labels = num_labels
-
             self._split_data(features, labels, self.config['split_ratio'])
 
         elif len(file_list) == 2:
@@ -189,9 +188,10 @@ class ExtremeClassDataset(Dataset):
     
     def __getitem__(self, index):
         batch = {}
-        batch['feat'] = torch.from_numpy(
-            self.data[0][index].toarray().squeeze()).float()
-
+        batch['feat_col'] = torch.from_numpy(
+            self.data[0].indices[self.data[0].indptr[index]: self.data[0].indptr[index + 1]] + 1).long()
+        batch['feat_value'] = torch.from_numpy(
+            self.data[0].data[self.data[0].indptr[index]: self.data[0].indptr[index + 1]]).float()
         batch['target'] = torch.from_numpy(
             self.data[1].indices[self.data[1].indptr[index]: self.data[1].indptr[index + 1]] + 1).long()
         return batch
