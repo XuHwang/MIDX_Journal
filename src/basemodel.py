@@ -33,7 +33,7 @@ class BaseModel(LightningModule):
         parent_parser.add_argument('--gpu', type=int, action='append', default=None, help='gpu number')
         parent_parser.add_argument('--init_method', type=str, default='xavier_normal', help='init method for model')
         parent_parser.add_argument('--init_range', type=float, help='init range for some methods like normal')
-        # parent_parser.add_argument('--sampler', type=str, default=None, help='which sampler to use')
+        parent_parser.add_argument('--sampler', type=str, default=None, help='which sampler to use')
         parent_parser.add_argument('--num_cluster', type=int, default=16, help='number of codewords for midx-based samplers')
         return parent_parser
 

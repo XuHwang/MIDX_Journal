@@ -10,7 +10,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='MIDX')
     parser.add_argument('--model', '-m', type=str, default='TransE', help='model name')
     parser.add_argument('--dataset', '-d', type=str, default='fb15k', help='dataset name')
-    parser.add_argument('--sampler', '-s', type=str, default=None, help='which sampler to use')
     parser.add_argument('--log_path', '-p', type=str, default='./log', help='log path to save files')
     args, command_line_args = parser.parse_known_args()
     model_class, model_conf = get_model(args.model)
@@ -22,7 +21,7 @@ if __name__ == '__main__':
                 model_conf[k] = v
                 break
 
-    log_path = time.strftime(f"{model_class.__name__}-{args.dataset}-{args.sampler}-%Y-%m-%d-%H-%M-%S.log", \
+    log_path = time.strftime(f"{model_class.__name__}-{args.dataset}-{args_.sampler}-{model_conf['num_neg']}-%Y-%m-%d-%H-%M-%S.log", \
         time.localtime())
     console_logger = get_logger(args.log_path,log_path)
     # tb_logger = TensorBoardLogger(save_dir=LOG_DIR, name="tensorboard/" + log_path)
