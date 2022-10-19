@@ -1,3 +1,4 @@
+from email.policy import default
 import logging
 from typing import Union, Dict, Tuple, List
 from torch import Tensor
@@ -6,7 +7,6 @@ import torch
 from torch import optim
 import pytorch_lightning
 from pytorch_lightning import LightningModule
-from pytorch_lightning.utilities.seed import seed_everything
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 from .scorer import InnerProductScorer
@@ -35,6 +35,7 @@ class BaseModel(LightningModule):
         parent_parser.add_argument('--init_range', type=float, help='init range for some methods like normal')
         parent_parser.add_argument('--sampler', type=str, default=None, help='which sampler to use')
         parent_parser.add_argument('--num_cluster', type=int, default=16, help='number of codewords for midx-based samplers')
+        parent_parser.add_argument('--num_neg', type=int, default=50, help='the number of negative samples')
         return parent_parser
 
 
@@ -42,8 +43,6 @@ class BaseModel(LightningModule):
         super().__init__()
         self.config = config
         self.target_vector = None
-        if self.config['fix_seed']:
-            seed_everything(self.config['seed'])
         if self.config['monitor_metric'] is None:
             self.val_metric = 'train_loss'
         else:

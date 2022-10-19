@@ -3,7 +3,7 @@ import argparse
 from src.utils import color_dict_normal, get_model, LOG_DIR, get_logger, get_dataset_config
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
-
+from pytorch_lightning.utilities.seed import seed_everything
 from src.utils.utils import download_dataset
 
 if __name__ == '__main__':
@@ -33,6 +33,9 @@ if __name__ == '__main__':
     import os
     if not os.path.exists(os.path.join("./data", args.dataset)):
         download_dataset(dataset_conf['url'], args.dataset)
+
+    if model_conf['fix_seed']:
+        seed_everything(model_conf['seed'])
 
     dataset = dataset_class(name=args.dataset, config=dataset_conf)
     trn, val, tst = dataset.build()
