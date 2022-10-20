@@ -50,8 +50,9 @@ class EcFc(BaseModel):
         topk = self.config['topk']
         cutoffs = self.config['cutoff'] if isinstance(self.config['cutoff'], list) else [self.config['cutoff']]
         bs = batch['target'].size(0)
-        query = self.construct_query(batch)
-        scores = self.score_fn(query, self.item_vector)
+        with torch.no_grad():
+            query = self.construct_query(batch)
+            scores = self.score_fn(query, self.item_vector)
         topk_scores, topk_items = torch.topk(input=scores, k=topk, dim=-1)
         topk_items = topk_items + 1
         target, _ = batch['target'].sort()

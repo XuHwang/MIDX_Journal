@@ -55,8 +55,8 @@ class PopularSampler(Sampler):
         self.register_buffer('pop_count', pop_count)
         self.register_buffer('pop_prob', pop_count / pop_count.sum())
 
-        self.pop_prob[0] = 1
         self.register_buffer('table', torch.cumsum(self.pop_prob, dim=0))
+        self.pop_prob[0] = 1
     
     def forward(self, query, num_neg, pos_items=None):
         with torch.no_grad():

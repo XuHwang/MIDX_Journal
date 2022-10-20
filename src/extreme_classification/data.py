@@ -157,7 +157,7 @@ class ExtremeClassDataset(Dataset):
         self._trn = (features_x[trn], labels_x[trn])
         self._val = (features_x[vld], labels_x[vld])
         self._tst = (features_y, labels_y)
-        self.label_freq =  torch.from_numpy(features_x[trn].sum(0)).squeeze()
+        self.label_freq =  torch.from_numpy(labels_x[trn].sum(0)).squeeze()
         self.label_freq = torch.cat((torch.zeros(1), self.label_freq))
 
 
