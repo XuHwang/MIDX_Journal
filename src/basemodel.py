@@ -17,6 +17,8 @@ from .sampler import (UniformSampler, PopularSampler,
                       SphereSampler, RFFSampler,
                       DynamicSampler, SIR)
 
+from .init import normal_initialization
+
 class BaseModel(LightningModule):
 
     @staticmethod
@@ -70,6 +72,12 @@ class BaseModel(LightningModule):
 
     def encode_target(self, target):
         pass
+
+    def on_fit_start(self) -> None:
+        super().on_fit_start()
+        for name, module in self.named_children():
+            init_method = normal_initialization(self.config['init_range'])
+            module.apply(init_method)
 
     def sampling(self, query, num_neg, pos_item):
         # query: [B,D], pos_item: [B, D] 
