@@ -75,9 +75,10 @@ class BaseModel(LightningModule):
 
     def on_fit_start(self) -> None:
         super().on_fit_start()
-        for name, module in self.named_children():
-            init_method = normal_initialization(self.config['init_range'])
-            module.apply(init_method)
+        if not hasattr(self, '_init_param'):
+            for name, module in self.named_children():
+                init_method = normal_initialization(self.config['init_range'])
+                module.apply(init_method)
 
     def sampling(self, query, num_neg, pos_item):
         # query: [B,D], pos_item: [B, D] 

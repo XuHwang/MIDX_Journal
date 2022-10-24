@@ -96,7 +96,7 @@ class ExtremeClassDataset(Dataset):
             self.num_labels = num_labels
             self._split_data(features, labels, self.config['split_ratio'])
 
-        elif len(file_list) == 2:
+        elif len(file_list) >= 2:
             # train.txt & test.txt
             for fname in file_list:
                 if 'train' in fname:

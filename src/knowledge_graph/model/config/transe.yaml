@@ -1,6 +1,8 @@
-embed_dim: 1000
+embed_dim: 1200
+
+gamma: 12.0
 
 batch_size: 2048
 eval_batch_size: 2048
 
-num_neg: 128
+num_neg: 50

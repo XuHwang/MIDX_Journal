@@ -5,7 +5,7 @@ scheduler: ~
 
 monitor_metric: ~
 early_stop_mode: min
-early_stop_patience: 10
+early_stop_patience: 100
 
 # temperature of softmax
 temperature: 1

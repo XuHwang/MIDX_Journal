@@ -17,7 +17,7 @@ class SIR(Sampler):
             rand_item_emb = F.embedding(rand_item_idx-1, self.item_vector)
             score = self.scorer(query, rand_item_emb.view(*shape, num_neg[0], -1)).view(-1, num_neg[0])
             imp_prob = torch.softmax(score, dim=-1)
-            resample_idx = torch.multinomial(imp_prob, num_samples=num_neg[1])
+            resample_idx = torch.multinomial(imp_prob, num_samples=num_neg[1], replacement=True)
             neg_id = torch.gather(rand_item_idx, -1, resample_idx).view(*shape, num_neg[1])
             log_neg_prob = torch.gather(score, -1, resample_idx).view(*shape, num_neg[1])
             log_neg_prob = torch.zeros_like(log_neg_prob)
