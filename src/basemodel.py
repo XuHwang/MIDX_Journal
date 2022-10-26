@@ -187,6 +187,10 @@ class BaseModel(LightningModule):
         # need to override to calculate metrics
         pass
 
+    def on_train_epoch_start(self) -> None:
+        if self.sampler is not None:
+            self.sampler.update(self.item_vector)
+
     def training_epoch_end(self, outputs):   
         loss_metric = {'train_'+ k: torch.hstack([e[k] for e in outputs]).mean() for k in outputs[0]}
         self.log_dict(loss_metric)
