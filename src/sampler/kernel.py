@@ -24,7 +24,7 @@ class KernelSampler(Sampler):
             logits = self.get_logits(query)
             logits = logits.reshape(-1, self.item_vec.shape[0])
             
-            neg_items = torch.multinomial(logits, num_samples=num_neg)
+            neg_items = torch.multinomial(logits, num_samples=num_neg, replacement=True)
 
             neg_prob = torch.log( torch.gather(logits, -1, neg_items) * num_neg) - torch.reshape(torch.log(logits.sum(-1)), [*logits.shape[:-1], 1])
 
@@ -78,7 +78,6 @@ class RFFSampler(KernelSampler):
         sampled_w = torch.normal(0, math.sqrt(1/temp), size=tuple(shape), device=item_vec.device)
         _scores = func(item_vec, sampled_w)
 
-        # A question is why sin ?
         return 1/math.sqrt(num_random_features) * torch.cat([torch.cos(_scores), torch.sin(_scores)], dim=-1)
     
     def update(self, item_embs, max_iter=30):
