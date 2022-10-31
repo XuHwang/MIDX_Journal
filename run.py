@@ -25,7 +25,7 @@ if __name__ == '__main__':
         time.localtime())
     console_logger = get_logger(args.log_path,log_path)
     # tb_logger = TensorBoardLogger(save_dir=LOG_DIR, name="tensorboard/" + log_path)
-    tb_logger = TensorBoardLogger(save_dir=os.path.join(args.log_path,  log_path + "/tensorboard"), name=log_path)
+    tb_logger = TensorBoardLogger(save_dir=os.path.join(args.log_path,  log_path), name="tensorboard")
 
     dataset_class = model_class.get_dataset_class()
     dataset_conf = get_dataset_config(args.dataset)

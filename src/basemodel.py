@@ -1,5 +1,4 @@
-from email.policy import default
-import logging
+import logging, os
 from typing import Union, Dict, Tuple, List
 from torch import Tensor
 
@@ -114,9 +113,8 @@ class BaseModel(LightningModule):
         # if len(eval.get_rank_metrics(self.val_metric)) > 0:
         #     self.val_metric += '@' + str(cutoffs[0])
         early_stopping = EarlyStopping(monitor_metric, verbose=True, patience=self.config['early_stop_patience'], mode=self.config['early_stop_mode'])
-        import os
-        ckpt_name = os.path.basename(self.console_logger.handlers[1].baseFilename).split('.')[0]
-        save_dir = os.path.join(SAVE_DIR, ckpt_name)
+        save_dir = os.path.dirname(self.console_logger.handlers[1].baseFilename)
+        save_dir = os.path.join(save_dir, 'ckpt' )
         ckp_callback = ModelCheckpoint(dirpath=save_dir, save_top_k=1, mode=self.config['early_stop_mode'], save_last=True)
         return [ckp_callback, early_stopping]
 
