@@ -8,5 +8,5 @@ num_neg: 20
 sampler: ~
 
 batch_size: 20
-learner: SGD
+# learner: SGD
 learning_rate: 1

@@ -135,7 +135,7 @@ class MIDXSamplerUniform(Sampler):
             return neg_items, neg_prob
         else:
             return self._sample_item_with_pop(k01, p01)
-            # return self._sample_item_with_pop_large(k01, p01) # for those datasets with extremely large number of items
+
 
     def _sample_item_with_pop(self, k01, p01):
         # k01 num_q x neg, p01 num_q x neg
@@ -154,31 +154,6 @@ class MIDXSamplerUniform(Sampler):
         # plus 1 due to considering padding, since p include num_items + 1 entries
         neg_probs = self.p[neg_items]
         return neg_items, p01 + torch.log(neg_probs)
-
-    def _sample_item_with_pop_large(self, k01, p01):
-        # the earlier version may exceed the cuda memory when the number of candidate corpus grows extremely large
-        # the reason lies in the huge tensor fullrange, with the shape of num_q x neg x maxlen, when maxlen is huge [unbalanced clusters]
-        # k01 num_q x neg, p01 num_q x neg
-        union_c, inverse_indices, counts = k01.view(-1).unique(return_counts=True, return_inverse=True) 
-        neg_items = torch.zeros_like(k01.view(-1))
-        neg_probs = torch.zeros_like(p01.view(-1))
-        
-        start = self.indptr[union_c] # K^2
-        last = self.indptr[union_c + 1] - 1 # K^2 
-        maxlen = (last - start + 1).max() 
-        fullrange = start.unsqueeze(-1)  + torch.arange(maxlen, device=k01.device).reshape(1, maxlen)
-        fullrange = torch.minimum(fullrange, last.unsqueeze(-1)) # K^2 x maxlen
-        item_idx = torch.searchsorted(self.cp[fullrange], torch.rand(size=(union_c.shape[0], counts.max()), device=p01.device)) # K^2 x max_count
-        item_idx = torch.minimum(item_idx, (last - start).unsqueeze(-1)) 
-        items = self.indices[item_idx + self.indptr[union_c].unsqueeze(-1)] + 1
-        probs = self.p[items]
-
-        for idx in range(union_c.shape[0]):
-            mask = torch.eq(inverse_indices, idx)
-            neg_items[mask] = items[idx][:mask.sum()]
-            neg_probs[mask] = probs[idx][:mask.sum()]
-
-        return neg_items.view(*k01.shape), p01 + torch.log(neg_probs.view(*p01.shape))
         
 
     def compute_item_p(self, query, pos_items):
@@ -236,3 +211,41 @@ class MIDXSamplerPop(MIDXSamplerUniform):
             if end > start:
                 cumsum = self.cp[start:end].cumsum(0)
                 self.cp[start:end] = cumsum / cumsum[-1]
+
+class MIDXSamplerPopLarge(MIDXSamplerPop):
+    def __init__(self, pop_count: torch.Tensor, num_clusters, scorer=None, mode=1):
+        super().__init__(pop_count, num_clusters, scorer, mode)
+    
+
+    def _sample_item_with_pop(self, k01, p01):
+        # the earlier version may exceed the cuda memory when the number of candidate corpus grows extremely large
+        # the reason lies in the huge tensor fullrange, with the shape of num_q x neg x maxlen, when maxlen is huge [unbalanced clusters]
+        # k01 num_q x neg, p01 num_q x neg
+        union_c, inverse_indices, counts = k01.view(
+            -1).unique(return_counts=True, return_inverse=True)
+        neg_items = torch.zeros_like(k01.view(-1))
+        neg_probs = torch.zeros_like(p01.view(-1))
+
+        start = self.indptr[union_c]  # K^2
+        last = self.indptr[union_c + 1] - 1  # K^2
+        maxlen = (last - start + 1).max()
+        fullrange = start.unsqueeze(-1) + torch.arange(maxlen,
+                                                       device=k01.device).reshape(1, maxlen)
+        fullrange = torch.minimum(
+            fullrange, last.unsqueeze(-1))  # K^2 x maxlen
+        item_idx = torch.searchsorted(self.cp[fullrange], torch.rand(
+            size=(union_c.shape[0], counts.max()), device=p01.device))  # K^2 x max_count
+        item_idx = torch.minimum(item_idx, (last - start).unsqueeze(-1))
+        items = self.indices[item_idx + self.indptr[union_c].unsqueeze(-1)] + 1
+        probs = self.p[items]
+
+        # for idx in range(union_c.shape[0]):
+        #     mask = torch.eq(inverse_indices, idx)
+        #     neg_items[mask] = items[idx][:mask.sum()]
+        #     neg_probs[mask] = probs[idx][:mask.sum()]
+        col_idx_mtx = torch.arange(counts.max(), device=k01.device).unsqueeze(0).repeat(union_c.shape[0], 1)
+        mask = torch.lt(col_idx_mtx, counts.unsqueeze(-1))
+        _, ind = k01.view(-1).sort()
+        neg_items[ind] = items[mask]
+        neg_probs[ind] = probs[mask]
+        return neg_items.view(*k01.shape), p01 + torch.log(neg_probs.view(*p01.shape))

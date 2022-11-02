@@ -1,3 +1,4 @@
+from email.policy import default
 import logging, os
 from typing import Union, Dict, Tuple, List
 from torch import Tensor
@@ -12,9 +13,9 @@ from .scorer import InnerProductScorer
 from .loss_func import FullSoftmax, SampledSoftmax
 from .utils import SAVE_DIR, color_dict
 from .sampler import (UniformSampler, PopularSampler, 
-                      MIDXSamplerUniform, MIDXSamplerPop, 
-                      SphereSampler, RFFSampler,
-                      DynamicSampler, SIR)
+                      MIDXSamplerUniform, MIDXSamplerPop, MIDXSamplerPopLarge,
+                      SphereSampler, RFFSampler, DynamicSampler,
+                      SphereSamplerAppr, RffSamplerAppr)
 
 from .init import normal_initialization
 
@@ -123,18 +124,22 @@ class BaseModel(LightningModule):
             return MIDXSamplerUniform(self.num_items, self.config['num_cluster'], self.score_fn)
         elif self.config['sampler'] == 'midx-pop':
             return MIDXSamplerPop(self.item_freq, self.config['num_cluster'], self.score_fn)
+        elif self.config['sampler'] == 'midx-pop-l':
+            return MIDXSamplerPopLarge(self.item_freq, self.config['num_cluster'], self.score_fn)
         elif self.config['sampler'] == 'uni':
             return UniformSampler(self.num_items, self.score_fn)
         elif self.config['sampler'] == 'pop':
             return PopularSampler(self.item_freq, self.score_fn)
-        elif self.config['sampler'] == 'sphere': # TODO: configurations
+        elif self.config['sampler'] == 'sphere':
             return SphereSampler(self.num_items, self.score_fn)
         elif self.config['sampler'] == 'rff':
             return RFFSampler(self.num_items, self.score_fn)
         elif self.config['sampler'] == 'dns':
             return DynamicSampler(self.num_items, self.score_fn)
-        elif self.config['sampler'] == 'sir':
-            return SIR(self.num_items, self.score_fn)
+        elif self.config['sampler'] == 'sphere_a':
+            return SphereSamplerAppr(self.num_items, self.score_fn)
+        elif self.config['sampler'] == 'rff_a':
+            return RffSamplerAppr(self.num_items, self.score_fn)
         elif self.config['sampler'] is None:
             return None
         else:
