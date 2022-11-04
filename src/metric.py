@@ -49,6 +49,22 @@ def precision(pred, target, k):
     output = pred[:, :k].sum(dim=-1).float() / k
     return output.mean()
 
+def recall(pred, target, k):
+    r"""Calculating recall.
+    Recall value is defined as below:
+    .. math::
+        Recall= \frac{TP}{TP+FN} 
+    Args:
+        pred(torch.BoolTensor): [B, num_items]. The prediction result of the model with bool type values. 
+            If the value in the j-th column is `True`, the j-th highest item predicted by model is right.
+        target(torch.FloatTensor): [B, num_target]. The ground truth.
+    Returns:
+        torch.FloatTensor: a 0-dimensional tensor.
+    """
+    count = (target > 0).sum(-1)
+    output = pred[:, :k].sum(dim=-1).float() / count
+    return output.mean()
+
 
 def _dcg(pred, k):
     k = min(k, pred.size(1))

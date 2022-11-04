@@ -1,4 +1,3 @@
-from email.policy import default
 import logging, os
 from typing import Union, Dict, Tuple, List
 from torch import Tensor
@@ -11,7 +10,7 @@ from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 from .scorer import InnerProductScorer
 from .loss_func import FullSoftmax, SampledSoftmax
-from .utils import SAVE_DIR, color_dict
+from .utils import color_dict
 from .sampler import (UniformSampler, PopularSampler, 
                       MIDXSamplerUniform, MIDXSamplerPop, MIDXSamplerPopLarge,
                       SphereSampler, RFFSampler, DynamicSampler,

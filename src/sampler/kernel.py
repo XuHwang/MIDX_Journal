@@ -105,15 +105,16 @@ class KernelSamplerAppr(Sampler):
         with torch.no_grad():
             num_queries = np.prod(query.shape[:-1])
             neg_items = torch.randint(0, self.num_items, size=(num_queries, num_neg), device=query.device) # no padding values
+            neg_items = neg_items.reshape(*query.shape[:-1], -1)
 
             neg_prob = torch.log(self.get_logits(query, neg_items))
 
         if pos_items is not None:
             pos_prob = torch.zeros_like(pos_items, dtype=torch.float)
-            return pos_prob, neg_items.reshape(*query.shape[:-1], -1) + 1, neg_prob.reshape(*query.shape[:-1], -1)
+            return pos_prob, neg_items + 1, neg_prob
         
         else:
-            return  neg_items.reshape(*query.shape[:-1], -1) + 1, neg_prob.reshape(*query.shape[:-1], -1)
+            return  neg_items + 1, neg_prob
 
 
 class SphereSamplerAppr(KernelSamplerAppr):
