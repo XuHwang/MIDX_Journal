@@ -27,6 +27,8 @@ class SASRec(BaseModel):
         self.activation = self.config['activation'] # relu, gelu
         self.layer_norm_eps = self.config['layer_norm_eps']
         self.max_seq_len = train_data.config['max_seq_len']
+        self.fiid = train_data.fiid
+        self.frating = train_data.frating
 
         self.position_emb = torch.nn.Embedding(self.max_seq_len, self.embed_dim)
         transformer_layer = torch.nn.TransformerEncoderLayer(
@@ -56,7 +58,7 @@ class SASRec(BaseModel):
 
     
     def construct_query(self, batch):
-        user_hist = batch['in_item_id']
+        user_hist = batch['in_' + self.fiid]
         seq_len = batch['seqlen']
         positions = torch.arange(user_hist.size(1), dtype=torch.long, device=user_hist.device)
         positions = positions.unsqueeze(0).expand_as(user_hist)
@@ -93,13 +95,13 @@ class SASRec(BaseModel):
     def _test_step(self, batch):
         topk = self.config['topk']
         cutoffs = self.config['cutoff'] if isinstance(self.config['cutoff'], list) else [self.config['cutoff']]
-        bs = batch['in_rating'].size(0)
+        bs = batch[self.frating].size(0)
         with torch.no_grad():
             query = self.construct_query(batch)
             scores = self.score_fn(query, self.item_vector)
         topk_scores, topk_items = self.topk(query, topk, batch['user_hist'])        
-        pred = batch['item_id'].view(-1, 1) == topk_items
-        target = batch['rating'].view(-1, 1)
+        pred = batch[self.fiid].view(-1, 1) == topk_items
+        target = batch[self.frating].view(-1, 1)
         metric_dict = {}
         for cutoff in cutoffs:
             metric_dict[f'recall@{cutoff}'] = recall(pred, target, cutoff)
