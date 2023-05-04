@@ -22,3 +22,5 @@ init_range: 0.01
 
 fix_seed: True
 seed: 10
+
+gpu: [0]

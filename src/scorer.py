@@ -39,6 +39,9 @@ class EuclideanScorer(InnerProductScorer):
             output = torch.sqrt(output)
         return -output
 
+    def extra_repr(self) -> str:
+        return f"sqrt={self.sqrt}"
+
 
 # class MLPScorer(InnerProductScorer):
 #     def __init__(self, transform):

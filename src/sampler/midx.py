@@ -89,6 +89,7 @@ class MIDXSamplerUniform(Sampler):
                     cumsum = self.cp[start:end].cumsum(0)
                     self.cp[start:end] = cumsum / cumsum[-1]
 
+    @torch.no_grad()
     def forward(self, query, num_neg, pos_items=None):
         # need_reshape = False
         # if query.dim() > 2:
@@ -212,6 +213,45 @@ class MIDXSamplerPop(MIDXSamplerUniform):
                 cumsum = self.cp[start:end].cumsum(0)
                 self.cp[start:end] = cumsum / cumsum[-1]
 
+class MIDXSamplerUniLarge(MIDXSamplerUniform):
+    def __init__(self, num_items, num_clusters, scorer_fn=None):
+        super().__init__(num_items, num_clusters, scorer_fn)
+    
+
+    def _sample_item_with_pop(self, k01, p01):
+        # the earlier version may exceed the cuda memory when the number of candidate corpus grows extremely large
+        # the reason lies in the huge tensor fullrange, with the shape of num_q x neg x maxlen, when maxlen is huge [unbalanced clusters]
+        # k01 num_q x neg, p01 num_q x neg
+        union_c, inverse_indices, counts = k01.view(
+            -1).unique(return_counts=True, return_inverse=True)
+        neg_items = torch.zeros_like(k01.view(-1))
+        neg_probs = torch.zeros_like(p01.view(-1))
+
+        start = self.indptr[union_c]  # K^2
+        last = self.indptr[union_c + 1] - 1  # K^2
+        maxlen = (last - start + 1).max()
+        fullrange = start.unsqueeze(-1) + torch.arange(maxlen,
+                                                       device=k01.device).reshape(1, maxlen)
+        fullrange = torch.minimum(
+            fullrange, last.unsqueeze(-1))  # K^2 x maxlen
+        item_idx = torch.searchsorted(self.cp[fullrange], torch.rand(
+            size=(union_c.shape[0], counts.max()), device=p01.device))  # K^2 x max_count
+        item_idx = torch.minimum(item_idx, (last - start).unsqueeze(-1))
+        items = self.indices[item_idx + self.indptr[union_c].unsqueeze(-1)] + 1
+        probs = self.p[items]
+
+        # for idx in range(union_c.shape[0]):
+        #     mask = torch.eq(inverse_indices, idx)
+        #     neg_items[mask] = items[idx][:mask.sum()]
+        #     neg_probs[mask] = probs[idx][:mask.sum()]
+        col_idx_mtx = torch.arange(counts.max(), device=k01.device).unsqueeze(0).repeat(union_c.shape[0], 1)
+        mask = torch.lt(col_idx_mtx, counts.unsqueeze(-1))
+        _, ind = k01.view(-1).sort()
+        neg_items[ind] = items[mask]
+        neg_probs[ind] = probs[mask]
+        return neg_items.view(*k01.shape), p01 + torch.log(neg_probs.view(*p01.shape))
+
+
 class MIDXSamplerPopLarge(MIDXSamplerPop):
     def __init__(self, pop_count: torch.Tensor, num_clusters, scorer=None, mode=1):
         super().__init__(pop_count, num_clusters, scorer, mode)
@@ -249,3 +289,37 @@ class MIDXSamplerPopLarge(MIDXSamplerPop):
         neg_items[ind] = items[mask]
         neg_probs[ind] = probs[mask]
         return neg_items.view(*k01.shape), p01 + torch.log(neg_probs.view(*p01.shape))
+
+
+class MIDXCSamplerUniform(MIDXSamplerUniform):
+
+    @torch.no_grad()
+    def forward(self, query, context, num_neg, pos_items=None):
+        # query: [B, D], context: [B]
+        c0 = self.c1[context]   # [B, K0, D]
+        c1 = self.c1[context]   # [B, K1, D]
+        if isinstance(self.scorer, CosineScorer):
+            query = F.normalize(query, dim=-1)
+        q0, q1 = query.reshape(-1, query.size(-1)).chunk(2, dim=-1)
+        r1 = c1.transpose(1,2) @ q1.view(-1, 1, q1.size(-1))
+        r1s = torch.softmax(r1, dim=-1)  # num_q x K1
+        r0 = q0 @ self.c0.T
+        r0s = torch.softmax(r0, dim=-1)  # num_q x K0
+        s0 = (r1s @ self.wkk.T) * r0s  # num_q x K0 | wkk: K0 x K1
+        k0 = torch.multinomial(
+            s0, num_neg, replacement=True)  # num_q x neg
+        p0 = torch.gather(r0, -1, k0)     # num_q * neg
+        subwkk = self.wkk[k0, :]          # num_q x neg x K1
+        s1 = subwkk * r1s.unsqueeze(1)     # num_q x neg x K1
+        k1 = torch.multinomial(
+            s1.view(-1, s1.size(-1)), 1).squeeze(-1).view(*s1.shape[:-1])  # num_q x neg
+        p1 = torch.gather(r1, -1, k1)  # num_q x neg
+        k01 = k0 * self.K + k1  # num_q x neg
+        p01 = p0 + p1
+        neg_items, neg_prob = self.sample_item(k01, p01)
+        if pos_items is not None:
+            pos_prob = None if pos_items is None else self.compute_item_p(
+                query, pos_items)
+            return pos_prob, neg_items.view(*query.shape[:-1], -1), neg_prob.view(*query.shape[:-1], -1)
+        else:
+            return neg_items.view(*query.shape[:-1], -1), neg_prob.view(*query.shape[:-1], -1)

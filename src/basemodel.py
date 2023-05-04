@@ -12,7 +12,7 @@ from .scorer import InnerProductScorer
 from .loss_func import FullSoftmax, SampledSoftmax
 from .utils import color_dict
 from .sampler import (UniformSampler, PopularSampler, 
-                      MIDXSamplerUniform, MIDXSamplerPop, MIDXSamplerPopLarge,
+                      MIDXSamplerUniform, MIDXSamplerUniLarge, MIDXSamplerPop, MIDXSamplerPopLarge,
                       SphereSampler, RFFSampler, DynamicSampler,
                       SphereSamplerAppr, RffSamplerAppr)
 
@@ -121,6 +121,8 @@ class BaseModel(LightningModule):
     def configure_sampler(self):
         if self.config['sampler'] == 'midx-uni':
             return MIDXSamplerUniform(self.num_items, self.config['num_cluster'], self.score_fn)
+        elif self.config['sampler'] == 'midx-uni-l':
+            return MIDXSamplerUniLarge(self.num_items, self.config['num_cluster'], self.score_fn)
         elif self.config['sampler'] == 'midx-pop':
             return MIDXSamplerPop(self.item_freq, self.config['num_cluster'], self.score_fn)
         elif self.config['sampler'] == 'midx-pop-l':
@@ -139,7 +141,7 @@ class BaseModel(LightningModule):
             return SphereSamplerAppr(self.num_items, self.score_fn)
         elif self.config['sampler'] == 'rff_a':
             return RffSamplerAppr(self.num_items, self.score_fn)
-        elif self.config['sampler'] is None:
+        elif (self.config['sampler'] is None) or (self.config['sampler']=='none'):
             return None
         else:
             raise ValueError(f"Not supported for such sampler {self.config['sampler']}.")
@@ -158,8 +160,8 @@ class BaseModel(LightningModule):
             log_pos_prob, neg_id, log_neg_prob = self.sampling(query, self.config['num_neg'], pos_item)
             neg_vec = self.encode_target(neg_id)
             output['neg_score'] = self.score_fn(query, neg_vec)
-            output['log_pos_prob'] = log_pos_prob
-            output['log_neg_prob'] = log_neg_prob
+            output['log_pos_prob'] = log_pos_prob.detach()
+            output['log_neg_prob'] = log_neg_prob.detach()
         else: # full softmax
             output['full_score'] = self.score_fn(query, self.item_vector)
         return output
@@ -169,8 +171,12 @@ class BaseModel(LightningModule):
             return SampledSoftmax()
         else:
             return FullSoftmax()
-        
+
     def on_train_start(self) -> None:
+        if self.sampler is not None:
+            self.sampler.update(self.item_vector)
+        
+    def on_train_epoch_start(self) -> None:
         if self.sampler is not None:
             self.sampler.update(self.item_vector)
 
@@ -199,6 +205,15 @@ class BaseModel(LightningModule):
         output_dict = self.trainer.logged_metrics
         output_dict.update({'epoch': self.trainer.current_epoch})
         self.console_logger.info(color_dict(output_dict, False))
+        if self.config['mode'] == 'tune':
+            metric = {}
+            for k, v in output_dict.items():
+                if isinstance(v, torch.Tensor):
+                    metric[k] = v.item()
+                else:
+                    metric[k] = v
+            metric['default'] = metric[self.config['monitor_metric']]
+            # nni.report_intermediate_result(metric)
 
     def validation_epoch_end(self, outputs):
         metric_dict = self._eval_epoch_end(outputs)
@@ -209,6 +224,15 @@ class BaseModel(LightningModule):
         metric_dict = self._eval_epoch_end(outputs)
         self.log_dict(metric_dict)
         self.console_logger.info(color_dict(self.trainer.logged_metrics, False))
+        if self.config['mode'] == 'tune':
+            metric = {}
+            for k, v in metric_dict.items():
+                if isinstance(v, torch.Tensor):
+                    metric[k] = v.item()
+                else:
+                    metric[k] = v
+            metric['default'] = metric[self.config['monitor_metric']]
+            # nni.report_final_result(metric)
         return metric_dict
 
     def _eval_epoch_end(self, outputs):
