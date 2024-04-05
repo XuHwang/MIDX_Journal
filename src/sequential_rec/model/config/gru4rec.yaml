@@ -1,0 +1,4 @@
+embed_dim: 64
+hidden_size: 128
+layer_num: 1
+dropout_rate: 0.5

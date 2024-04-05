@@ -1,6 +1,7 @@
-monitor_metric: ndcg@20
+monitor_metric: ndcg@10
 early_stop_mode: max
+early_stop_patience: 10
 topk: 50
-cutoff: [10,20,50]
+cutoff: [5,10,20,50]
 
 num_neg: 50

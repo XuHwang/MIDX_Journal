@@ -187,12 +187,27 @@ class MIDXSamplerPop(MIDXSamplerUniform):
     def __init__(self, pop_count: torch.Tensor, num_clusters, scorer=None, mode=1):
         super(MIDXSamplerPop, self).__init__(
             pop_count.shape[0], num_clusters, scorer)
+        # if mode == 0:
+        #     pop_count = torch.log(pop_count + 1)
+        # elif mode == 1:
+        #     pop_count = torch.log(pop_count + 1) + 1e-6
+        # elif mode == 2:
+        #     pop_count = pop_count**0.75
         if mode == 0:
             pop_count = torch.log(pop_count + 1)
         elif mode == 1:
             pop_count = torch.log(pop_count + 1) + 1e-6
         elif mode == 2:
-            pop_count = pop_count**0.75
+            pop_count = pop_count**0.75 + 1e-6
+        elif mode == 3:
+            pop_count = pop_count**0.5 + 1e-6
+        elif mode == 4:
+            pop_count = torch.log10(pop_count + 1) + 1e-6
+        elif mode == 5:
+            pop_count = pop_count + 1e-6
+        else:
+            pop_count = torch.log(pop_count + 1) + 1e-6
+
         self.pop_count = torch.nn.Parameter(pop_count[:-1], requires_grad=False) # TODO: check 
 
     def _update(self, item_embs, cd0m, cd1m):

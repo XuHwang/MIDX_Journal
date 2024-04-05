@@ -37,6 +37,10 @@ class BaseModel(LightningModule):
         parent_parser.add_argument('--sampler', type=str, default=None, help='which sampler to use')
         parent_parser.add_argument('--num_cluster', type=int, default=16, help='number of codewords for midx-based samplers')
         parent_parser.add_argument('--num_neg', type=int, default=50, help='the number of negative samples')
+        parent_parser.add_argument('--pop_mode', type=int, default=1, help='the mode for pop')
+        parent_parser.add_argument('--sphere_alpha', type=float, default=100, help='alpha for sphere kernel sampler')
+        parent_parser.add_argument('--rff_temp', type=float, default=4.0, help='temp for rff sampler')
+        parent_parser.add_argument('--rff_dim', type=int, default=32, help='temp for rff sampler')
         return parent_parser
 
 
@@ -122,23 +126,21 @@ class BaseModel(LightningModule):
         if self.config['sampler'] == 'midx-uni':
             return MIDXSamplerUniform(self.num_items, self.config['num_cluster'], self.score_fn)
         elif self.config['sampler'] == 'midx-pop':
-            return MIDXSamplerPop(self.item_freq, self.config['num_cluster'], self.score_fn)
+            return MIDXSamplerPop(self.item_freq, self.config['num_cluster'], self.score_fn, self.config['pop_mode'])
         elif self.config['sampler'] == 'midx-pop-l':
-            return MIDXSamplerPopLarge(self.item_freq, self.config['num_cluster'], self.score_fn)
+            return MIDXSamplerPopLarge(self.item_freq, self.config['num_cluster'], self.score_fn, self.config['pop_mode'])
         elif self.config['sampler'] == 'uni':
             return UniformSampler(self.num_items, self.score_fn)
         elif self.config['sampler'] == 'pop':
-            return PopularSampler(self.item_freq, self.score_fn)
+            return PopularSampler(self.item_freq, self.score_fn, mode=self.config['pop_mode'])
         elif self.config['sampler'] == 'sphere':
-            return SphereSampler(self.num_items, self.score_fn)
+            return SphereSampler(self.num_items, self.score_fn, alpha=self.config['sphere_alpha'])
         elif self.config['sampler'] == 'rff':
-            return RFFSampler(self.num_items, self.score_fn)
-        elif self.config['sampler'] == 'dns':
-            return DynamicSampler(self.num_items, self.score_fn)
+            return RFFSampler(self.num_items, self.score_fn, temp=self.config['rff_temp'], rff_dim=self.config['rff_dim'])
         elif self.config['sampler'] == 'sphere_a':
-            return SphereSamplerAppr(self.num_items, self.score_fn)
+            return SphereSamplerAppr(self.num_items, self.score_fn, alpha=self.config['sphere_alpha'])
         elif self.config['sampler'] == 'rff_a':
-            return RffSamplerAppr(self.num_items, self.score_fn)
+            return RffSamplerAppr(self.num_items, self.score_fn, temp=self.config['rff_temp'], rff_dim=self.config['rff_dim'])
         elif self.config['sampler'] is None:
             return None
         else:
@@ -158,8 +160,8 @@ class BaseModel(LightningModule):
             log_pos_prob, neg_id, log_neg_prob = self.sampling(query, self.config['num_neg'], pos_item)
             neg_vec = self.encode_target(neg_id)
             output['neg_score'] = self.score_fn(query, neg_vec)
-            output['log_pos_prob'] = log_pos_prob
-            output['log_neg_prob'] = log_neg_prob
+            output['log_pos_prob'] = log_pos_prob.detach()
+            output['log_neg_prob'] = log_neg_prob.detach()
         else: # full softmax
             output['full_score'] = self.score_fn(query, self.item_vector)
         return output
@@ -171,6 +173,8 @@ class BaseModel(LightningModule):
             return FullSoftmax()
         
     def on_train_start(self) -> None:
+        # save_path = './save_items/vec/item_freq.pt' 
+        # torch.save(self.item_freq, save_path)
         if self.sampler is not None:
             self.sampler.update(self.item_vector)
 
@@ -180,6 +184,10 @@ class BaseModel(LightningModule):
         return {"loss": loss}
 
     def validation_step(self, batch, batch_idx):
+        # if (self.current_epoch % 10 == 0) and (batch_idx == 0):
+        #     query = self.construct_query(batch)
+        #     save_path = './save_items/vec/query_vector_epoch{}.pt'.format(self.current_epoch) 
+        #     torch.save(query.detach().cpu(), save_path)
         return self._test_step(batch)
 
     def test_step(self, batch, batch_idx):
@@ -192,6 +200,9 @@ class BaseModel(LightningModule):
     def on_train_epoch_start(self) -> None:
         if self.sampler is not None:
             self.sampler.update(self.item_vector)
+        # if (self.trainer.current_epoch % 10) == 0:
+        #     save_path = './save_items/vec/item_vector_epoch{}.pt'.format(self.trainer.current_epoch) 
+        #     torch.save(self.item_vector.cpu(), save_path)
 
     def training_epoch_end(self, outputs):   
         loss_metric = {'train_'+ k: torch.hstack([e[k] for e in outputs]).mean() for k in outputs[0]}

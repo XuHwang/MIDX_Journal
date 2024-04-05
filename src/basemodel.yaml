@@ -10,8 +10,7 @@ early_stop_patience: 100
 # temperature of softmax
 temperature: 1
 
-sampler: ~
-num_cluster: ~
+
 
 epochs: 1000
 num_workers: 4
@@ -22,3 +21,11 @@ init_range: 0.01
 
 fix_seed: True
 seed: 10
+
+
+sampler: ~
+num_cluster: 32
+pop_mode: 1
+sphere_alpha: 100
+rff_temp: 4.0
+rff_dim: 32

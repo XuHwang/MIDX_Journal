@@ -27,7 +27,7 @@ min_user_inter: 10
 min_item_inter: 10
 field_max_len: ~
 rating_threshold: 3.0
-drop_low_rating: False
+drop_low_rating: True
 max_seq_len: 20
 
 # network feature, including social network and knowledge graph, the first two fields are remapped the corresponding features

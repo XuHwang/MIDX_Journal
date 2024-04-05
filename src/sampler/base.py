@@ -50,7 +50,12 @@ class PopularSampler(Sampler):
         elif mode == 1:
             pop_count = torch.log(pop_count + 1) + 1e-6
         elif mode == 2:
-            pop_count = pop_count**0.75
+            pop_count = pop_count**0.75 + 1e-6
+        elif mode == 3:
+            pop_count = pop_count**0.5 + 1e-6
+        elif mode == 4:
+            pop_count = torch.log10(pop_count + 1) + 1e-6
+
         
         self.register_buffer('pop_count', pop_count)
         self.register_buffer('pop_prob', pop_count / pop_count.sum())
