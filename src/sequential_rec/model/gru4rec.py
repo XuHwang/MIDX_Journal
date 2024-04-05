@@ -1,111 +1,90 @@
 import torch
-from src.loss_func import FullSoftmax, RotatELoss, SampledSoftmax, TransELoss, PRISLoss
-from src.metric import hits, mr, mrr
-
-from src.scorer import EuclideanScorer, InnerProductScorer
-from ..data import KGDataset
 from src.basemodel import BaseModel
+from src.metric import ndcg, recall
+from ..data import SeqDataset
 
-class TransE(BaseModel):
+class GRU4Rec(BaseModel):
 
     def add_model_specific_args(parent_parser):
         parent_parser = BaseModel.add_model_specific_args(parent_parser)
-        parent_parser.add_argument_group("TransE")
-        parent_parser.add_argument("--embed_dim", type=int, default=500, help='embedding size')
-        parent_parser.add_argument("--gamma", type=float, default=2, help='margin in loss')
-        parent_parser.add_argument("--loss", type=str, default='ssl', help='loss function')
-        parent_parser.add_argument("--weight", type=str, default='True', help='whether to use weight in loss')
-        parent_parser.add_argument("--norm", action='store_true', default=False, help='whether to norm entity embedding')
+        parent_parser.add_argument_group('GRU4Rec')
+        parent_parser.add_argument("--embed_dim", type=int, default=64, help='embededding dimension')
+        parent_parser.add_argument("--hidden_size", type=int, default=128)
+        parent_parser.add_argument("--layer_num", type=int, default=2)
+        parent_parser.add_argument("--dropout_rate", type=float, default=0.5, help='dropout rate')
+
         return parent_parser
 
-    def __init__(self, config, train_data, epsilon=2.0) -> None:
+    def __init__(self, config, train_data) -> None:
         super().__init__(config, train_data)
-        # self.embedding_range = (self.config['gamma'] + epsilon) / self.config['embed_dim']
-        self.embedding_range = 0.01
-        self.entity_embedding = torch.nn.Embedding(self.num_items, self.config['embed_dim'], 0)
-        self.relation_embedding = torch.nn.Embedding(train_data.num_relations, self.config['embed_dim'], 0)
-        norm = self.config['norm']
-        self.score_fn = InnerProductScorer() if norm else EuclideanScorer()
-        self.sampler = self.configure_sampler()
-        self.loss_fn = self.configure_loss(self.config['loss'])
-        self._init_param()
-        #TODO(@AngusHuang17): whether to try loss used in TransE (widely used in KGE papers)
-
-    def configure_loss(self, loss='ssl'):
-        loss = loss.lower()
-        if self.sampler is not None:
-            if loss == 'ssl':
-                return SampledSoftmax()
-            elif loss == 'tsl':
-                return TransELoss(self.config['gamma'], weight=(self.config['weight']=='True'))
-            elif loss == 'rtl':
-                return RotatELoss(self.config['gamma'], weight=(self.config['weight']=='True'))
-            elif loss == 'pris':
-                return PRISLoss(self.config['gamma'], weight=(self.config['weight']=='True'))
-            else:
-                return ValueError("No such loss. Only support [ssl/tsl/rtl]")
-        else:
-            return FullSoftmax()
-
-    def _init_param(self):
-        torch.nn.init.uniform_(
-            tensor=self.entity_embedding.weight, 
-            a=-self.embedding_range,
-            b=self.embedding_range
+        self.embed_dim = self.config['embed_dim']
+        self.hidden_size = self.config['hidden_size']
+        self.num_layers = self.config['layer_num']
+        self.dropout_rate = self.config['dropout_rate']
+        self.emb_dropout = torch.nn.Dropout(self.dropout_rate)
+        self.GRU = torch.nn.GRU(
+            input_size = self.embed_dim,
+            hidden_size = self.hidden_size,
+            num_layers = self.num_layers,
+            bias = False,
+            batch_first = True,
+            bidirectional = False
         )
-        torch.nn.init.uniform_(
-            tensor=self.relation_embedding.weight,
-            a=-self.embedding_range,
-            b=self.embedding_range
-        )
-        self.entity_embedding.weight.data[0, :] = 0.0
-        self.relation_embedding.weight.data[0, :] = 0.0
+        self.dense = torch.nn.Linear(self.hidden_size, self.embed_dim)
+
+        self.fiid = train_data.fiid
+        self.frating = train_data.frating
+        self.item_encoder = self._get_item_encoder(train_data)
 
     def get_dataset_class():
-        return KGDataset
+        return SeqDataset
+    
+    def _get_item_encoder(self, train_data):
+        return torch.nn.Embedding(train_data.num_items, self.embed_dim, padding_idx=0)
 
     def construct_query(self, batch):
-        norm = self.config['norm']
-        r_emb = self.relation_embedding(batch['relation'])
-        if 'head' in batch: # tail as target:
-            h_emb = self.entity_embedding(batch['head'])
-            if norm:
-                h_emb = h_emb / torch.norm(h_emb, p=2, dim=-1, keepdim=True)
-                query = 2 * (h_emb + r_emb)
-            else:
-                query = (h_emb + r_emb)
-        else:
-            t_emb = self.entity_embedding(batch['tail'])
-            if norm:
-                t_emb = t_emb / torch.norm(t_emb, p=2, dim=-1, keepdim=True)
-                query = 2 * (t_emb - r_emb)
-            else:
-                query = (t_emb - r_emb)
-        return query
+        user_hist = batch['in_' + self.fiid]
+        emb_hist = self.item_encoder(user_hist)
+        emb_hist_dropout = self.emb_dropout(emb_hist)   # B x L x H_in
+        gru_vec, _ = self.GRU(emb_hist_dropout)    # B x L x H_out
+        query = self.dense(gru_vec)
+        gather_index = (batch['seqlen']-1).view(-1, 1, 1).expand(-1, -1, query.shape[-1]) # B x 1 x H_out
+        query_output = query.gather(dim=1, index=gather_index).squeeze(1)  # B x H_out
+        return emb_hist, query_output
 
-    def encode_target(self, target):
-        emb = self.entity_embedding(target)
-        if self.config['norm']:
-            emb = emb / torch.norm(emb, p=2, dim=-1, keepdim=True)
-        return emb
+    def topk(self, query, k, user_h):
+        more = user_h.size(1) if user_h is not None else 0
+        score, topk_items = torch.topk(self.score_fn(query, self.item_vector), k + more)
+        if user_h is not None:
+            topk_items += 1
+            existing, _ = user_h.sort()
+            idx_ = torch.searchsorted(existing, topk_items)
+            idx_[idx_ == existing.size(1)] = existing.size(1) - 1
+            score[torch.gather(existing, 1, idx_) == topk_items] = -float('inf')
+            score1, idx = score.topk(k)
+            return score1, torch.gather(topk_items, 1, idx)
+        else:
+            return score, topk_items
 
     def _test_step(self, batch):
-        label = batch['target']
-        bs = label.size(0)
-        query = self.construct_query(batch)
-        scores = self.score_fn(query, self.entity_embedding.weight)
-        target_score = scores[torch.arange(scores.size(0), device=scores.device), label]
-        diff = scores - target_score.view(-1,1)
+        topk = self.config['topk']
+        cutoffs = self.config['cutoff'] if isinstance(self.config['cutoff'], list) else [self.config['cutoff']]
+        bs = batch[self.frating].size(0)
+        with torch.no_grad():
+            query = self.construct_query(batch)
+            scores = self.score_fn(query, self.item_vector)
+        topk_scores, topk_items = self.topk(query, topk, batch['user_hist'])        
+        pred = batch[self.fiid].view(-1, 1) == topk_items
+        target = batch[self.frating].view(-1, 1)
         metric_dict = {}
-        metric_dict['mr'] = mr(diff)
-        metric_dict['mrr'] = mrr(diff)
-        for cutoff in self.config['cutoffs']:
-            metric_dict[f'hit@{cutoff}'] = hits(diff, cutoff)
+        for cutoff in cutoffs:
+            metric_dict[f'recall@{cutoff}'] = recall(pred, target, cutoff)
+            metric_dict[f'ndcg@{cutoff}'] = ndcg(pred, target, cutoff)
         return metric_dict, bs
-
+    
+    def encode_target(self, target):
+        return self.item_encoder(target)
+    
     @property
     def item_vector(self):
-        embs = self.entity_embedding.weight[1:]
-        if self.config['norm']:
-            embs = embs / torch.norm(embs, p=2, dim=-1, keepdim=True)
-        return embs
+        return self.item_encoder.weight[1:]
