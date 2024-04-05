@@ -3,7 +3,7 @@ import argparse
 from src.utils import color_dict_normal, get_model, LOG_DIR, get_logger, get_dataset_config
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
-from lightning_fabric.utilities.seed import seed_everything
+from pytorch_lightning.utilities.seed import seed_everything
 from src.utils.utils import download_dataset
 
 if __name__ == '__main__':
@@ -58,7 +58,7 @@ if __name__ == '__main__':
     trainer = Trainer(
         accelerator='gpu', 
         devices=model_conf['gpu'],
-        # auto_select_gpus=True,
+        auto_select_gpus=True,
         logger=tb_logger,
         max_epochs=model_conf['epochs'],
         enable_progress_bar=show_progress_bar

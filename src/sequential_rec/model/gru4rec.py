@@ -50,7 +50,7 @@ class GRU4Rec(BaseModel):
         query = self.dense(gru_vec)
         gather_index = (batch['seqlen']-1).view(-1, 1, 1).expand(-1, -1, query.shape[-1]) # B x 1 x H_out
         query_output = query.gather(dim=1, index=gather_index).squeeze(1)  # B x H_out
-        return emb_hist, query_output
+        return query_output
 
     def topk(self, query, k, user_h):
         more = user_h.size(1) if user_h is not None else 0

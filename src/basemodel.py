@@ -12,7 +12,7 @@ from .scorer import InnerProductScorer
 from .loss_func import FullSoftmax, SampledSoftmax
 from .utils import color_dict
 from .sampler import (UniformSampler, PopularSampler, 
-                      MIDXSamplerUniform, MIDXSamplerUniLarge, MIDXSamplerPop, MIDXSamplerPopLarge,
+                      MIDXSamplerUniform,
                       SphereSampler, RFFSampler, DynamicSampler,
                       SphereSamplerAppr, RffSamplerAppr)
 
@@ -125,12 +125,6 @@ class BaseModel(LightningModule):
     def configure_sampler(self):
         if self.config['sampler'] == 'midx-uni':
             return MIDXSamplerUniform(self.num_items, self.config['num_cluster'], self.score_fn)
-        elif self.config['sampler'] == 'midx-uni-l':
-            return MIDXSamplerUniLarge(self.num_items, self.config['num_cluster'], self.score_fn)
-        elif self.config['sampler'] == 'midx-pop':
-            return MIDXSamplerPop(self.item_freq, self.config['num_cluster'], self.score_fn, self.config['pop_mode'])
-        elif self.config['sampler'] == 'midx-pop-l':
-            return MIDXSamplerPopLarge(self.item_freq, self.config['num_cluster'], self.score_fn, self.config['pop_mode'])
         elif self.config['sampler'] == 'uni':
             return UniformSampler(self.num_items, self.score_fn)
         elif self.config['sampler'] == 'pop':
