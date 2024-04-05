@@ -1,8 +1,11 @@
 embed_dim: 1200
 
-gamma: 12.0
+gamma: 0
+weight: True
+loss: ssl
+norm: False
 
-batch_size: 2048
+batch_size: 500
 eval_batch_size: 2048
 
-num_neg: 50
+num_neg: 256
