@@ -1,8 +1,10 @@
 import time, os
+import nni
 import argparse
 from src.utils import color_dict_normal, get_model, LOG_DIR, get_logger, get_dataset_config
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers.wandb import WandbLogger
 from pytorch_lightning.utilities.seed import seed_everything
 from src.utils.utils import download_dataset
 
@@ -11,7 +13,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', '-m', type=str, default='TransE', help='model name')
     parser.add_argument('--dataset', '-d', type=str, default='fb15k', help='dataset name')
     parser.add_argument('--log_path', '-p', type=str, default='./log', help='log path to save files')
-    parser.add_argument('--mode', type=str, default='light', help='whether to enable nni')
+    parser.add_argument('--mode', type=str, default='light', choices=['light', 'tune'], help='whether to enable nni')
     args, command_line_args = parser.parse_known_args()
     model_class, model_conf = get_model(args.model)
     parser = model_class.add_model_specific_args(parser)
@@ -23,15 +25,18 @@ if __name__ == '__main__':
                 break
     model_conf['mode'] = args.mode
     if args.mode == 'tune':
-        # hypo_params = nni.get_next_parameter()
-        # model_conf.update(hypo_params)
-        pass
+        hypo_params = nni.get_next_parameter()
+        model_conf.update(hypo_params)
 
     log_path = time.strftime(f"{model_class.__name__}-{args.dataset}-{args_.sampler}-{model_conf['num_neg']}-%Y-%m-%d-%H-%M-%S.log", \
         time.localtime())
     console_logger = get_logger(args.log_path,log_path)
     # tb_logger = TensorBoardLogger(save_dir=LOG_DIR, name="tensorboard/" + log_path)
     tb_logger = TensorBoardLogger(save_dir=os.path.join(args.log_path,  log_path), name="tensorboard")
+
+    # wandb_logger = WandbLogger(log_model="all")
+
+    all_logger = [tb_logger]
 
     dataset_class = model_class.get_dataset_class()
     dataset_conf = get_dataset_config(args.dataset)
@@ -59,7 +64,7 @@ if __name__ == '__main__':
         accelerator='gpu', 
         devices=model_conf['gpu'],
         auto_select_gpus=True,
-        logger=tb_logger,
+        logger=all_logger,
         max_epochs=model_conf['epochs'],
         enable_progress_bar=show_progress_bar
     )

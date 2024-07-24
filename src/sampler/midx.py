@@ -34,13 +34,13 @@ def kmeans(X, K_or_center, max_iter=300, verbose=False):
 
 
 def construct_index(cd01, K):
-    cd01, indices = torch.sort(cd01)
+    cd01, indices = torch.sort(cd01, stable=True)
     cluster, count = torch.unique_consecutive(cd01, return_counts=True)
+    cluster = cluster.type(torch.long)
     count_all = torch.zeros(K + 1, dtype=torch.long, device=cd01.device)
     count_all[cluster + 1] = count
     indptr = count_all.cumsum(dim=-1)
     return indices, indptr
-
 
 class MIDXSamplerUniform(Sampler):
     """

@@ -3,3 +3,4 @@ from .midx import MIDXSamplerUniform, MIDXSamplerUniLarge, MIDXSamplerPop, MIDXS
 from .kernel import SphereSampler, RFFSampler, SphereSamplerAppr, RffSamplerAppr
 from .dns import DynamicSampler
 from .sir import SIR
+from .lsh import LSHSampler

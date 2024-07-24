@@ -4,7 +4,6 @@ from torch import Tensor
 
 import torch
 from torch import optim
-import pytorch_lightning
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
@@ -14,7 +13,7 @@ from .utils import color_dict
 from .sampler import (UniformSampler, PopularSampler, 
                       MIDXSamplerUniform,
                       SphereSampler, RFFSampler, DynamicSampler,
-                      SphereSamplerAppr, RffSamplerAppr)
+                      SphereSamplerAppr, RffSamplerAppr, LSHSampler)
 
 from .init import normal_initialization
 
@@ -25,6 +24,7 @@ class BaseModel(LightningModule):
         parent_parser.add_argument_group('MIDX')
         parent_parser.add_argument("--learning_rate", type=float, default=0.001, help='learning rate')
         parent_parser.add_argument("--learner", type=str, default="adam", help='optimization algorithm')
+        parent_parser.add_argument("--scheduler", type=str, default="none", help='lr scheduler algorithm')
         parent_parser.add_argument('--weight_decay', type=float, default=0, help='weight decay coefficient')
         parent_parser.add_argument('--epochs', type=int, default=50, help='training epochs')
         parent_parser.add_argument('--batch_size', type=int, default=256, help='training batch size')
@@ -41,6 +41,9 @@ class BaseModel(LightningModule):
         parent_parser.add_argument('--sphere_alpha', type=float, default=100, help='alpha for sphere kernel sampler')
         parent_parser.add_argument('--rff_temp', type=float, default=4.0, help='temp for rff sampler')
         parent_parser.add_argument('--rff_dim', type=int, default=32, help='temp for rff sampler')
+        parent_parser.add_argument('--lsh_bits', type=int, default=4, help='number of bits for lsh sampler')
+        parent_parser.add_argument('--lsh_tables', type=int, default=16, help='number of tables for lsh sampler')
+        parent_parser.add_argument('--sampler_update_step', type=int, default=100, help='update frequency for sampler')
         return parent_parser
 
 
@@ -65,6 +68,11 @@ class BaseModel(LightningModule):
         if hasattr(train_data, "num_feat"):
             self.console_logger.info(f"Number of Feat: {train_data.num_feat}")
             self.num_feat = train_data.num_feat # work for extreme classification task
+        
+        if hasattr(train_data, "num_users"):    # Recommendation task
+            self.console_logger.info(f"Number of Users: {train_data.num_users}")
+            self.console_logger.info(f"Number of Inters: {train_data.num_inters}")
+            self.console_logger.info(f"Sparsity: {1-train_data.num_inters/(train_data.num_items*train_data.num_users)}")
 
     @staticmethod
     def get_dataset_class():
@@ -137,6 +145,15 @@ class BaseModel(LightningModule):
             return SphereSamplerAppr(self.num_items, self.score_fn, alpha=self.config['sphere_alpha'])
         elif self.config['sampler'] == 'rff_a':
             return RffSamplerAppr(self.num_items, self.score_fn)
+        elif self.config['sampler'] == 'lsh':
+            return LSHSampler(
+                num_items=self.num_items,
+                n_dims=self.config['embed_dim'],
+                n_bits=self.config['lsh_bits'],
+                n_table=self.config['lsh_tables'],
+                device=self.device,
+                scorer_fn=self.score_fn
+                )
         elif (self.config['sampler'] is None) or (self.config['sampler']=='none'):
             return None
         else:
@@ -173,6 +190,10 @@ class BaseModel(LightningModule):
             self.sampler.update(self.item_vector)
 
     def training_step(self, batch, batch_idx):
+        if ((self.sampler is not None) and
+            (self.config['sampler_update_step'] is not None) and 
+            (batch_idx % self.config['sampler_update_step'] == 0)):
+            self.sampler.update(self.item_vector)
         output = self.forward(batch)
         loss = self.loss_fn(**output)
         return {"loss": loss}
@@ -290,6 +311,12 @@ class BaseModel(LightningModule):
                 scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.98)
             elif self.config['scheduler'].lower() == 'onplateau':
                 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+            elif self.config['scheduler'].lower() == "cosine":
+                scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer, 
+                    T_max=10,
+                    eta_min=0.0
+                )
             else:
                 scheduler = None
         else:
