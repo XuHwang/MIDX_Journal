@@ -1,6 +1,8 @@
 import torch
 import numpy as np
+import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.functional
 from .base import Sampler
 from ..scorer import InnerProductScorer, EuclideanScorer, CosineScorer
 
@@ -30,7 +32,7 @@ def kmeans(X, K_or_center, max_iter=300, verbose=False):
         empty_idx = cluster_count < .5
         ndead = empty_idx.sum().item()
         C[empty_idx] = X[torch.randperm(N)[:ndead]]
-    return C, assign, assign_m, loss
+    return C, assign, assign_m, C[assign, :]
 
 
 def construct_index(cd01, K):
@@ -42,15 +44,16 @@ def construct_index(cd01, K):
     return indices, indptr
 
 
-class MIDXSamplerUniform(Sampler):
+class MIDXProductSampler(Sampler):
     """
     Uniform sampling for the final items
     """
 
     def __init__(self, num_items, num_clusters, scorer_fn=None):
         assert scorer_fn is None or isinstance(scorer_fn, InnerProductScorer)
-        super(MIDXSamplerUniform, self).__init__(num_items, scorer_fn)
+        super(MIDXProductSampler, self).__init__(num_items, scorer_fn)
         self.K = num_clusters
+        self.residual_quantizer = False
 
     def update(self, item_embs, max_iter=100):
         if isinstance(self.scorer, CosineScorer):
@@ -60,19 +63,20 @@ class MIDXSamplerUniform(Sampler):
             embs1, self.c0 if hasattr(self, 'c0') else self.K, max_iter)
         self.c1, cd1, cd1m, _ = kmeans(
             embs2, self.c1 if hasattr(self, 'c1') else self.K, max_iter)
+        
         # for retreival probability, considering padding
-        self.c0_ = torch.cat(
-            [self.c0.new_zeros(1, self.c0.size(1)), self.c0], dim=0)
-        # for retreival probability, considering padding
-        self.c1_ = torch.cat(
-            [self.c1.new_zeros(1, self.c1.size(1)), self.c1], dim=0)
-        # for retreival probability, considering padding
-        self.cd0 = torch.cat([-cd0.new_ones(1), cd0], dim=0) + 1
-        # for retreival probability, considering padding
-        self.cd1 = torch.cat([-cd1.new_ones(1), cd1], dim=0) + 1
+        self.c0_, self.cd0 = self._update_paddings(self.c0, cd0)
+        self.c1_, self.cd1 = self._update_paddings(self.c1, cd1)
+        
         cd01 = cd0 * self.K + cd1
         self.indices, self.indptr = construct_index(cd01, self.K**2)
         self._update(item_embs, cd0m, cd1m)
+
+    
+    def _update_paddings(self, c, cd):
+        c_ = torch.cat([c.new_zeros(1, c.size(1)), c], dim=0)
+        cd_ = torch.cat([-cd.new_ones(1), cd], dim=0) + 1
+        return c_, cd_        
 
     def _update(self, item_embs, cd0m, cd1m):
         if not isinstance(self.scorer, EuclideanScorer):
@@ -100,7 +104,10 @@ class MIDXSamplerUniform(Sampler):
         with torch.no_grad():
             if isinstance(self.scorer, CosineScorer):
                 query = F.normalize(query, dim=-1)
-            q0, q1 = query.reshape(-1, query.size(-1)).chunk(2, dim=-1)
+            if self.residual_quantizer is True:
+                q0, q1 = query.reshape(-1, query.size(-1)), query.reshape(-1, query.size(-1))
+            else:
+                q0, q1 = query.reshape(-1, query.size(-1)).chunk(2, dim=-1)
             r1 = q1 @ self.c1.T
             r1s = torch.softmax(r1, dim=-1)  # num_q x K1
             r0 = q0 @ self.c0.T
@@ -125,19 +132,35 @@ class MIDXSamplerUniform(Sampler):
                 return neg_items.view(*query.shape[:-1], -1), neg_prob.view(*query.shape[:-1], -1)
 
     def sample_item(self, k01, p01, pos=None):
-        # TODO: remove positive items
-        if not hasattr(self, 'cp'):
-            # num_q x neg, the number of items
-            item_cnt = self.indptr[k01 + 1] - self.indptr[k01]
-            item_idx = torch.floor(
-                item_cnt * torch.rand_like(item_cnt.float())).int()  # num_q x neg
-            neg_items = self.indices[item_idx + self.indptr[k01]] + 1
-            neg_prob = p01
-            return neg_items, neg_prob
-        else:
-            return self._sample_item_with_pop(k01, p01)
+        # num_q x neg, the number of items
+        item_cnt = self.indptr[k01 + 1] - self.indptr[k01]
+        item_idx = torch.floor(
+            item_cnt * torch.rand_like(item_cnt.float())).int()  # num_q x neg
+        neg_items = self.indices[item_idx + self.indptr[k01]] + 1
+        neg_prob = p01
+        return neg_items, neg_prob
 
 
+
+    def _sample_item_with_pop(self, k01, p01):
+        # k01 num_q x neg, p01 num_q x neg
+        start = self.indptr[k01]
+        last = self.indptr[k01 + 1] - 1
+        count = last - start + 1
+        maxlen = count.max()
+        fullrange = start.unsqueeze(-1) + torch.arange(
+            maxlen, device=start.device).reshape(1, 1, maxlen)  # num_q x neg x maxlen
+        fullrange = torch.minimum(fullrange, last.unsqueeze(-1))
+        # @todo replace searchsorted with torch.bucketize
+        item_idx = torch.searchsorted(self.cp[fullrange], torch.rand_like(
+            p01).unsqueeze(-1)).squeeze(-1)  # num_q x neg
+        # item_idx = torch.minimum(item_idx, last)
+        neg_items = self.indices[item_idx + self.indptr[k01]] + 1
+        # plus 1 due to considering padding, since p include num_items + 1 entries
+        neg_probs = self.p[neg_items]
+        return neg_items, p01 + torch.log(neg_probs)
+        
+        
     def _sample_item_with_pop(self, k01, p01):
         # k01 num_q x neg, p01 num_q x neg
         start = self.indptr[k01]
@@ -167,174 +190,166 @@ class MIDXSamplerUniform(Sampler):
         k1 = self.cd1[pos_items_]  # B x L || B x L1
         c0 = self.c0_[k0, :]  # B x L x D || B x L1 x D
         c1 = self.c1_[k1, :]  # B x L x D || B x L1 x D
-        q0, q1 = query.chunk(2, dim=-1)  # B x L x D || B x D
+        if self.residual_quantizer is True:
+            q0, q1 = query, query
+        else:
+            q0, q1 = query.chunk(2, dim=-1)  # B x L x D || B x D
         if query.dim() == pos_items_.dim():
             r = (torch.bmm(c0, q0.unsqueeze(-1)) +
                  torch.bmm(c1, q1.unsqueeze(-1))).squeeze(-1)  # B x L1
         else:
             r = (q0 * c0).sum(-1) + (q1 * c1).sum(-1)
-            # pos_items_ = pos_items_.unsqueeze(1)
         if not hasattr(self, 'p'):
             return r.view_as(pos_items)
         else:
             return (r + torch.log(self.p[pos_items_])).view_as(pos_items)
 
-
-class MIDXSamplerPop(MIDXSamplerUniform):
-    """
-    Popularity sampling for the final items
-    """
-
-    def __init__(self, pop_count: torch.Tensor, num_clusters, scorer=None, mode=1):
-        super(MIDXSamplerPop, self).__init__(
-            pop_count.shape[0], num_clusters, scorer)
-        # if mode == 0:
-        #     pop_count = torch.log(pop_count + 1)
-        # elif mode == 1:
-        #     pop_count = torch.log(pop_count + 1) + 1e-6
-        # elif mode == 2:
-        #     pop_count = pop_count**0.75
-        if mode == 0:
-            pop_count = torch.log(pop_count + 1)
-        elif mode == 1:
-            pop_count = torch.log(pop_count + 1) + 1e-6
-        elif mode == 2:
-            pop_count = pop_count**0.75 + 1e-6
-        elif mode == 3:
-            pop_count = pop_count**0.5 + 1e-6
-        elif mode == 4:
-            pop_count = torch.log10(pop_count + 1) + 1e-6
-        elif mode == 5:
-            pop_count = pop_count + 1e-6
-        else:
-            pop_count = torch.log(pop_count + 1) + 1e-6
-
-        self.pop_count = torch.nn.Parameter(pop_count[:-1], requires_grad=False) # TODO: check 
-
-    def _update(self, item_embs, cd0m, cd1m):
-        if not isinstance(self.scorer, EuclideanScorer):
-            norm = self.pop_count
-        else:
-            norm = self.pop_count * \
-                torch.exp(-0.5*torch.sum(item_embs**2, dim=-1))
-        self.wkk = cd0m.T @ (cd1m * norm.view(-1, 1))
-        # self.p = torch.from_numpy(np.insert(pop_count, 0, 1.0))
-        # this is similar, to avoid log 0 !!! in case of zero padding
-        self.p = torch.cat([norm.new_ones(1), norm], dim=0)
-        self.cp = norm[self.indices]
-        for c in range(self.K**2):
-            start, end = self.indptr[c], self.indptr[c+1]
-            if end > start:
-                cumsum = self.cp[start:end].cumsum(0)
-                self.cp[start:end] = cumsum / cumsum[-1]
-
-class MIDXSamplerUniLarge(MIDXSamplerUniform):
+class MIDXResidualSampler(MIDXProductSampler):
     def __init__(self, num_items, num_clusters, scorer_fn=None):
-        super().__init__(num_items, num_clusters, scorer_fn)
-    
+        super(MIDXResidualSampler, self).__init__(num_items, num_clusters, scorer_fn)
+        self.residual_quantizer = True
 
-    def _sample_item_with_pop(self, k01, p01):
-        # the earlier version may exceed the cuda memory when the number of candidate corpus grows extremely large
-        # the reason lies in the huge tensor fullrange, with the shape of num_q x neg x maxlen, when maxlen is huge [unbalanced clusters]
-        # k01 num_q x neg, p01 num_q x neg
-        union_c, inverse_indices, counts = k01.view(
-            -1).unique(return_counts=True, return_inverse=True)
-        neg_items = torch.zeros_like(k01.view(-1))
-        neg_probs = torch.zeros_like(p01.view(-1))
-
-        start = self.indptr[union_c]  # K^2
-        last = self.indptr[union_c + 1] - 1  # K^2
-        maxlen = (last - start + 1).max()
-        fullrange = start.unsqueeze(-1) + torch.arange(maxlen,
-                                                       device=k01.device).reshape(1, maxlen)
-        fullrange = torch.minimum(
-            fullrange, last.unsqueeze(-1))  # K^2 x maxlen
-        item_idx = torch.searchsorted(self.cp[fullrange], torch.rand(
-            size=(union_c.shape[0], counts.max()), device=p01.device))  # K^2 x max_count
-        item_idx = torch.minimum(item_idx, (last - start).unsqueeze(-1))
-        items = self.indices[item_idx + self.indptr[union_c].unsqueeze(-1)] + 1
-        probs = self.p[items]
-
-        # for idx in range(union_c.shape[0]):
-        #     mask = torch.eq(inverse_indices, idx)
-        #     neg_items[mask] = items[idx][:mask.sum()]
-        #     neg_probs[mask] = probs[idx][:mask.sum()]
-        col_idx_mtx = torch.arange(counts.max(), device=k01.device).unsqueeze(0).repeat(union_c.shape[0], 1)
-        mask = torch.lt(col_idx_mtx, counts.unsqueeze(-1))
-        _, ind = k01.view(-1).sort()
-        neg_items[ind] = items[mask]
-        neg_probs[ind] = probs[mask]
-        return neg_items.view(*k01.shape), p01 + torch.log(neg_probs.view(*p01.shape))
-
-
-class MIDXSamplerPopLarge(MIDXSamplerPop):
-    def __init__(self, pop_count: torch.Tensor, num_clusters, scorer=None, mode=1):
-        super().__init__(pop_count, num_clusters, scorer, mode)
-    
-
-    def _sample_item_with_pop(self, k01, p01):
-        # the earlier version may exceed the cuda memory when the number of candidate corpus grows extremely large
-        # the reason lies in the huge tensor fullrange, with the shape of num_q x neg x maxlen, when maxlen is huge [unbalanced clusters]
-        # k01 num_q x neg, p01 num_q x neg
-        union_c, inverse_indices, counts = k01.view(
-            -1).unique(return_counts=True, return_inverse=True)
-        neg_items = torch.zeros_like(k01.view(-1))
-        neg_probs = torch.zeros_like(p01.view(-1))
-
-        start = self.indptr[union_c]  # K^2
-        last = self.indptr[union_c + 1] - 1  # K^2
-        maxlen = (last - start + 1).max()
-        fullrange = start.unsqueeze(-1) + torch.arange(maxlen,
-                                                       device=k01.device).reshape(1, maxlen)
-        fullrange = torch.minimum(
-            fullrange, last.unsqueeze(-1))  # K^2 x maxlen
-        item_idx = torch.searchsorted(self.cp[fullrange], torch.rand(
-            size=(union_c.shape[0], counts.max()), device=p01.device))  # K^2 x max_count
-        item_idx = torch.minimum(item_idx, (last - start).unsqueeze(-1))
-        items = self.indices[item_idx + self.indptr[union_c].unsqueeze(-1)] + 1
-        probs = self.p[items]
-
-        # for idx in range(union_c.shape[0]):
-        #     mask = torch.eq(inverse_indices, idx)
-        #     neg_items[mask] = items[idx][:mask.sum()]
-        #     neg_probs[mask] = probs[idx][:mask.sum()]
-        col_idx_mtx = torch.arange(counts.max(), device=k01.device).unsqueeze(0).repeat(union_c.shape[0], 1)
-        mask = torch.lt(col_idx_mtx, counts.unsqueeze(-1))
-        _, ind = k01.view(-1).sort()
-        neg_items[ind] = items[mask]
-        neg_probs[ind] = probs[mask]
-        return neg_items.view(*k01.shape), p01 + torch.log(neg_probs.view(*p01.shape))
-
-
-class MIDXCSamplerUniform(MIDXSamplerUniform):
-
-    @torch.no_grad()
-    def forward(self, query, context, num_neg, pos_items=None):
-        # query: [B, D], context: [B]
-        c0 = self.c1[context]   # [B, K0, D]
-        c1 = self.c1[context]   # [B, K1, D]
+    def update(self, item_embs, max_iter=100):
         if isinstance(self.scorer, CosineScorer):
-            query = F.normalize(query, dim=-1)
-        q0, q1 = query.reshape(-1, query.size(-1)).chunk(2, dim=-1)
-        r1 = c1.transpose(1,2) @ q1.view(-1, 1, q1.size(-1))
-        r1s = torch.softmax(r1, dim=-1)  # num_q x K1
-        r0 = q0 @ self.c0.T
-        r0s = torch.softmax(r0, dim=-1)  # num_q x K0
-        s0 = (r1s @ self.wkk.T) * r0s  # num_q x K0 | wkk: K0 x K1
-        k0 = torch.multinomial(
-            s0, num_neg, replacement=True)  # num_q x neg
-        p0 = torch.gather(r0, -1, k0)     # num_q * neg
-        subwkk = self.wkk[k0, :]          # num_q x neg x K1
-        s1 = subwkk * r1s.unsqueeze(1)     # num_q x neg x K1
-        k1 = torch.multinomial(
-            s1.view(-1, s1.size(-1)), 1).squeeze(-1).view(*s1.shape[:-1])  # num_q x neg
-        p1 = torch.gather(r1, -1, k1)  # num_q x neg
-        k01 = k0 * self.K + k1  # num_q x neg
-        p01 = p0 + p1
-        neg_items, neg_prob = self.sample_item(k01, p01)
-        if pos_items is not None:
-            pos_prob = None if pos_items is None else self.compute_item_p(
-                query, pos_items)
-            return pos_prob, neg_items.view(*query.shape[:-1], -1), neg_prob.view(*query.shape[:-1], -1)
+            item_embs = F.normalize(item_embs, dim=-1)
+        
+        self.c0, cd0, cd0m, item_embs_quant = kmeans(
+            item_embs, self.c0 if hasattr(self, 'c0') else self.K, max_iter)
+        self.c1, cd1, cd1m, _ = kmeans(
+            item_embs - item_embs_quant, self.c1 if hasattr(self, 'c1') else self.K, max_iter)
+        
+        # for retreival probability, considering padding
+        self.c0_, self.cd0 = self._update_paddings(self.c0, cd0)
+        self.c1_, self.cd1 = self._update_paddings(self.c1, cd1)
+        
+        cd01 = cd0 * self.K + cd1
+        self.indices, self.indptr = construct_index(cd01, self.K**2)
+        self._update(item_embs, cd0m, cd1m)
+
+
+
+class MIDXSamplerLearnProduct(MIDXProductSampler):
+    def __init__(self, num_items, num_clusters, emb_dim, scorer_fn=None):
+        super().__init__(num_items, num_clusters, scorer_fn)
+
+        self.residual_quantizer = False
+        assert emb_dim % 2 == 0, ValueError("embedding dimension should be even")
+        self.c0 = nn.Parameter(torch.FloatTensor(num_clusters, emb_dim//2))
+        nn.init.normal_(self.c0, std=0.01)
+        self.c1 = nn.Parameter(torch.FloatTensor(num_clusters, emb_dim//2))
+        nn.init.normal_(self.c1, std=0.01)
+
+    
+    def encoding(self, emb_vector:torch.Tensor, hard:bool=False):
+        """
+        encode the emb_vector with the vq-codebook
+        
+        here we assume we have two codebooks
+        """
+        emb1, emb2 = torch.chunk(emb_vector, 2, dim=-1)
+        res1 = self._encode(emb1, self.c0, hard)
+        res2 = self._encode(emb2, self.c1, hard)
+        return torch.cat([res1, res2], dim=-1)
+
+
+    # def _encode(self, emb_vec, codebook, hard=False):
+    #     # Version_V1: use the l2 distance
+    #     # emb_vec: B x L x D
+    #     # codebook: K x D
+    #     dist_subspace = torch.cdist(emb_vec, codebook) # B x L x K
+    #     logit = torch.exp(-dist_subspace/2)
+    #     weight_hard = torch.nn.functional.gumbel_softmax(logit, tau=1.0, hard=True) # B x L x K
+    #     weight_soft = torch.nn.functional.gumbel_softmax(logit, tau=1.0, hard=False)
+    #     if hard:
+    #         weight = weight_hard.detach()
+    #     else:
+    #         weight = weight_soft.detach()
+    #     output = (weight.unsqueeze(-1) * codebook).sum(-2)
+    #     return output
+    
+    def _encode(self, emb_vec, codebook, hard=False):
+        # V2: use the inner product to calculate the similarity
+        # emb_vec: B x L x D or N x D
+        # codebook: K x D
+        if emb_vec.dim() == codebook.dim():
+            # N x D,  K x D
+            logit = torch.matmul(emb_vec, codebook.T) # N x K
         else:
-            return neg_items.view(*query.shape[:-1], -1), neg_prob.view(*query.shape[:-1], -1)
+            if emb_vec.dim() == 3:
+                # B x L x D,  K x D
+                logit = torch.einsum('bld,kd->blk', emb_vec, codebook)
+            elif emb_vec.dim() == 4:
+                # B x L x N x D,  K x D
+                logit = torch.einsum('blnd,kd->blnk', emb_vec, codebook)
+        if hard:
+            weight = torch.nn.functional.gumbel_softmax(logit, tau=1.0, hard=True, dim=-1).detach()
+        else:
+            weight = torch.nn.functional.gumbel_softmax(logit, tau=1.0, hard=False, dim=-1).detach()
+        return (weight.unsqueeze(-1) * codebook).sum(-2)
+        
+
+    def index_update(self, X, center, **kwargs):
+        N = X.size(0)
+        dist = torch.matmul(X, center.T)
+        if dist.isinf().any():
+            print("Warning: inf distance found!!!")
+            import pdb; pdb.set_trace()
+        assign = dist.argmax(-1)
+        assign_m = X.new_zeros(N, self.K)
+        assign_m[(range(N), assign)] = 1
+        
+        reconstruct_X = center[assign, :]
+        return center, assign, assign_m, reconstruct_X
+
+    def update(self, item_embs, max_iter=100):
+        if isinstance(self.scorer, CosineScorer):
+            item_embs = F.normalize(item_embs, dim=-1)
+        embs1, embs2 = torch.chunk(item_embs, 2, dim=-1)
+        self.c0, cd0, cd0m, _ = self.index_update(embs1, self.c0)
+        self.c1, cd1, cd1m, _ = self.index_update(embs2, self.c1)
+
+        # for retreival probability, considering padding
+        self.c0_, self.cd0 = self._update_paddings(self.c0, cd0)
+        self.c1_, self.cd1 = self._update_paddings(self.c1, cd1)
+
+        cd01 = cd0 * self.K + cd1
+        self.indices, self.indptr = construct_index(cd01, self.K**2)
+        self._update(item_embs, cd0m, cd1m)
+
+class MIDXSamplerLearnResidual(MIDXSamplerLearnProduct):
+    def __init__(self, num_items, num_clusters, emb_dim, scorer_fn=None):
+        super(MIDXSamplerLearnProduct, self).__init__(num_items, num_clusters, scorer_fn)
+
+        self.residual_quantizer = True
+        self.c0 = nn.Parameter(torch.FloatTensor(num_clusters, emb_dim))
+        nn.init.normal_(self.c0, std=0.01)
+        self.c1 = nn.Parameter(torch.FloatTensor(num_clusters, emb_dim))
+        nn.init.normal_(self.c1, std=0.01)
+
+    
+    def encoding(self, emb_vector:torch.Tensor, hard:bool=False):
+        """
+        encode the emb_vector with the vq-codebook
+        
+        here we assume we have two codebooks
+
+        emb_vector: B x L x D
+        """
+        res1 = self._encode(emb_vector, self.c0, hard) # K x D or B x L x D
+        res2 = self._encode(emb_vector - res1, self.c1, hard)
+        return  torch.add(res1, res2)
+
+
+    def update(self, item_embs, max_iter=100):
+        if isinstance(self.scorer, CosineScorer):
+            item_embs = F.normalize(item_embs, dim=-1)
+        self.c0, cd0, cd0m, reconstruct_X1 = self.index_update(item_embs, self.c0)
+        self.c1, cd1, cd1m, _ = self.index_update(item_embs - reconstruct_X1, self.c1)
+
+        # for retreival probability, considering padding
+        self.c0_, self.cd0 = self._update_paddings(self.c0, cd0)
+        self.c1_, self.cd1 = self._update_paddings(self.c1, cd1)
+
+        cd01 = cd0 * self.K + cd1
+        self.indices, self.indptr = construct_index(cd01, self.K**2)
+        self._update(item_embs, cd0m, cd1m)

@@ -1,20 +1,19 @@
 import logging, os
-from typing import Union, Dict, Tuple, List
-from torch import Tensor
-
+import itertools
 import torch
 from torch import optim
-import pytorch_lightning
 from pytorch_lightning import LightningModule
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+import torch.nn.functional as F
 
-from .scorer import InnerProductScorer
+from .scorer import InnerProductScorer,EuclideanScorer
 from .loss_func import FullSoftmax, SampledSoftmax
 from .utils import color_dict
-from .sampler import (UniformSampler, PopularSampler, 
-                      MIDXSamplerUniform,
-                      SphereSampler, RFFSampler, DynamicSampler,
-                      SphereSamplerAppr, RffSamplerAppr)
+from .sampler import (UniformSampler, PopularSampler,
+                      SphereSampler, RFFSampler,
+                      SphereSamplerAppr, RffSamplerAppr,
+                      LSHSampler,
+                      MIDXProductSampler, MIDXResidualSampler, MIDXSamplerLearnResidual, MIDXSamplerLearnProduct)
 
 from .init import normal_initialization
 
@@ -93,6 +92,9 @@ class BaseModel(LightningModule):
 
     def configure_optimizers(self):
         params = self.parameters()
+        if isinstance(self.sampler, MIDXSamplerLearnProduct) or isinstance(self.sampler, MIDXSamplerLearnResidual):
+            params_sampler = self.sampler.parameters()
+            params = itertools.chain(params, params_sampler)
         optimizer = self.get_optimizer(params)
         scheduler = self.get_scheduler(optimizer)
         m = self.val_metric
@@ -123,8 +125,8 @@ class BaseModel(LightningModule):
         return [ckp_callback, early_stopping]
 
     def configure_sampler(self):
-        if self.config['sampler'] == 'midx-uni':
-            return MIDXSamplerUniform(self.num_items, self.config['num_cluster'], self.score_fn)
+        if self.config['sampler'] == 'midx-pq':
+            return MIDXProductSampler(self.num_items, self.config['num_cluster'], self.score_fn)
         elif self.config['sampler'] == 'uni':
             return UniformSampler(self.num_items, self.score_fn)
         elif self.config['sampler'] == 'pop':
@@ -139,11 +141,20 @@ class BaseModel(LightningModule):
             return RffSamplerAppr(self.num_items, self.score_fn)
         elif (self.config['sampler'] is None) or (self.config['sampler']=='none'):
             return None
+        elif self.config['sampler'] =='midx-rq':
+            return MIDXResidualSampler(self.num_items, self.config['num_cluster'],self.score_fn)
+        elif self.config['sampler'] == 'midx-learn-pq':
+            return MIDXSamplerLearnProduct(self.num_items, self.config['num_cluster'], self.config['embed_dim'], self.score_fn)
+        elif self.config['sampler'] == 'midx-learn-rq':
+            return MIDXSamplerLearnResidual(self.num_items, self.config['num_cluster'], self.config['embed_dim'],  self.score_fn)
+        elif self.config['sampler'] == 'lsh':
+            return LSHSampler(self.num_items, self.config['embed_dim'])
         else:
             raise ValueError(f"Not supported for such sampler {self.config['sampler']}.")
 
     def forward(self, batch, pad2inf=True):
         output = {}
+        output_quantizer = {}
         query = self.construct_query(batch)
         pos_item = batch['target']
         pos_vec = self.encode_target(pos_item)
@@ -160,7 +171,51 @@ class BaseModel(LightningModule):
             output['log_neg_prob'] = log_neg_prob.detach()
         else: # full softmax
             output['full_score'] = self.score_fn(query, self.item_vector)
-        return output
+        
+        sampler_class_list = [MIDXSamplerLearnProduct, MIDXSamplerLearnResidual]
+        if any([isinstance(self.sampler, cls) for cls in sampler_class_list]):
+            # get the quantization loss for optimization
+            # pos_vec_ = self.sampler.encoding(pos_vec.detach())
+            # neg_vec_ = self.sampler.encoding(neg_vec.detach())
+
+            # Trial 1: || x_i - x'_i ||^2, it works, similar to the uni
+            # dis1 = torch.norm(pos_vec.detach() - pos_vec_, dim=-1).mean()
+            # dis2 = torch.norm(neg_vec.detach() - neg_vec_, dim=-1).mean()
+            # output_quantizer['reconstract_loss'] = dis1 + dis2
+
+            # Trial 2: ||r_ui - r'_ui||^2,  smaller coefficent for the loss
+            # pos_score_ = self.score_fn(query.detach(), pos_vec_)
+            # neg_score_ = self.score_fn(query.detach(), neg_vec_)
+            # if pad2inf:
+            #     pos_score_[batch['target']==0] = -float('inf')
+            # dis1 = torch.nn.functional.mse_loss(pos_score_, output['pos_score'].detach())
+            # dis2 = torch.nn.functional.mse_loss(neg_score_, output['neg_score'].detach())
+            # output_quantizer['reconstract_loss'] = dis1 + dis2
+
+            # Trial 3:
+            # pos_score_ = self.score_fn(query.detach(), pos_vec_)
+            # if pad2inf:
+            #     pos_score_[batch['target']==0] = -float('inf')
+            # output_quantizer['pos_score'] = pos_score_
+            # output_quantizer['neg_score'] = self.score_fn(query.detach(), neg_vec_)
+            # output_quantizer['log_pos_prob'] = log_pos_prob.detach()
+            # output_quantizer['log_neg_prob'] = log_neg_prob.detach()
+            # output_quantizer['reconstract_loss'] = self.loss_fn(**output_quantizer)
+
+            # Trial 5:
+            # Calculate the KL-distance between the original softmax probability and the quantized softmax probability
+            item_vec_ = self.sampler.encoding(self.item_vector.detach())
+
+            full_score = self.score_fn(query.detach(), self.item_vector.detach())
+            full_sp = F.log_softmax(full_score, dim=-1).detach() # avoid inf or nan
+            full_score_quant = self.score_fn(query.detach(), item_vec_)
+            full_quant_sp = F.log_softmax(full_score_quant, dim=-1) # avoid inf or nan
+            N = self.item_vector.size(0)
+            loss_kl = torch.nn.functional.kl_div(full_sp.reshape(-1, N), full_quant_sp.reshape(-1, N), reduction='batchmean', log_target=True) # target is log_softmax
+            dis = torch.nn.PairwiseDistance()(self.item_vector.detach(), item_vec_).mean()
+            output_quantizer['reconstract_loss'] = dis
+            output_quantizer['kl_div'] = loss_kl
+        return output, output_quantizer
 
     def configure_loss(self):
         if self.sampler is not None:
@@ -171,11 +226,25 @@ class BaseModel(LightningModule):
     def on_train_start(self) -> None:
         if self.sampler is not None:
             self.sampler.update(self.item_vector)
+    
 
     def training_step(self, batch, batch_idx):
-        output = self.forward(batch)
-        loss = self.loss_fn(**output)
-        return {"loss": loss}
+        if self.sampler is not None:
+            self.sampler.update(self.item_vector)
+        output, output_q = self.forward(batch)
+        if output_q:
+            loss = self.loss_fn(**output)
+            loss_q = output_q['reconstract_loss']
+            loss_kl = output_q['kl_div']
+            self.log('ssl_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+            self.log('recons_loss', loss_q, on_step=False, on_epoch=True, prog_bar=True)
+            self.log('kl_loss', loss_kl, on_step=False, on_epoch=True, prog_bar=True)
+            return {"loss": loss + loss_q + loss_kl} 
+        else:
+            loss = self.loss_fn(**output)
+            self.log('ssl_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
+            return {"loss": loss}
+
 
     def validation_step(self, batch, batch_idx):
         # if (self.current_epoch % 10 == 0) and (batch_idx == 0):
