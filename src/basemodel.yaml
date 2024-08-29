@@ -30,3 +30,7 @@ pop_mode: 1
 sphere_alpha: 100
 rff_temp: 4.0
 rff_dim: 32
+lsh_bits: 4
+lsh_tables: 16
+
+sampler_update_step: ~  # how many steps to update sampler per epoch

@@ -134,3 +134,6 @@ saved/
 log/
 launch.json
 nni*/
+wandb*/
+
+.vscode/

@@ -7,7 +7,7 @@ class LSTM(BaseModel):
 
     def add_model_specific_args(parent_parser):
         parent_parser = BaseModel.add_model_specific_args(parent_parser)
-        parent_parser.add_argument_group('Transformer')
+        parent_parser.add_argument_group('LSTM')
         parent_parser.add_argument("--embed_dim", type=int, default=200, help='embededding dimension')
         parent_parser.add_argument("--dropout", type=float, default=0.1, help='dropout rate')
         parent_parser.add_argument("--n_layer", type=int, default=2, help='number of LSTM layers')

@@ -3,7 +3,7 @@ from .base import Sampler
 from ..scorer import InnerProductScorer
 import torch.nn.functional as F
 import numpy as np
-import rff
+# import rff
 
 class KernelSampler(Sampler):
     """
@@ -26,8 +26,8 @@ class KernelSampler(Sampler):
             logits = logits.reshape(-1, logits.shape[-1])
             neg_items = torch.multinomial(logits, num_samples=num_neg, replacement=True)
 
-            # neg_prob = torch.log( torch.gather(logits, -1, neg_items) * num_neg) - torch.reshape(torch.log(logits.sum(-1)), [*logits.shape[:-1], 1])
-            neg_prob = torch.log( torch.gather(logits, -1, neg_items) * num_neg)
+            neg_prob = torch.log(torch.gather(logits, -1, neg_items) * num_neg) - torch.log(logits.sum(-1, keepdim=True))
+            # neg_prob = torch.log( torch.gather(logits, -1, neg_items) * num_neg)
 
         if pos_items is not None:
             pos_prob = torch.zeros_like(pos_items)
@@ -97,13 +97,19 @@ class KernelSamplerAppr(Sampler):
     def get_logits(self, query, sampled_items, **kwargs):
         pass
     
+    def get_all_logits(self, query):
+        pass
+
     def forward(self, query, num_neg, pos_items=None):
         with torch.no_grad():
             num_queries = np.prod(query.shape[:-1])
             neg_items = torch.randint(0, self.num_items, size=(num_queries, num_neg), device=query.device) # no padding values
             neg_items = neg_items.reshape(*query.shape[:-1], -1)
 
-            neg_prob = torch.log(self.get_logits(query, neg_items))
+            if "Sphere" in self.__class__.__name__:
+                neg_prob = torch.log(num_neg * self.get_logits(query, neg_items)) - torch.log(self.get_all_logits(query).sum(-1, keepdim=True))
+            else:
+                neg_prob = torch.log(self.get_logits(query, neg_items))
 
         if pos_items is not None:
             pos_prob = torch.zeros_like(pos_items, dtype=torch.float)
@@ -118,6 +124,10 @@ class SphereSamplerAppr(KernelSamplerAppr):
         super().__init__(num_items, scorer_fn)
         self.alpha = alpha
     
+    def get_all_logits(self, query):
+        logits = self.scorer(query, self.item_vec)
+        return self.alpha * (logits ** 2) + 1
+
     def get_logits(self, query, sampled_items):
         logits = self.scorer(query, self.item_vec[sampled_items])
         return self.alpha * (logits ** 2) + 1
@@ -148,4 +158,9 @@ class RffSamplerAppr(KernelSamplerAppr):
         query_kernel = RFFSampler.kernel_vec(query, self.nu, self.num_random_features)
         item_kernel = self.item_vec[sampled_items]
         return self.scorer(query_kernel, item_kernel)
+    
+
+    def get_all_logits(self, query):
+        query_kernel = RFFSampler.kernel_vec(query, self.nu, self.num_random_features)
+        return self.scorer(query_kernel, self.item_vec)
 
