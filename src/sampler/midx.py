@@ -114,13 +114,23 @@ class MIDXProductSampler(Sampler):
             r0 = q0 @ self.c0.T
             r0s = torch.softmax(r0, dim=-1)  # num_q x K0
             s0 = (r1s @ self.wkk.T) * r0s  # num_q x K0 | wkk: K0 x K1
-            k0 = torch.multinomial(
-                s0, num_neg, replacement=True)  # num_q x neg
+            # k0 = torch.multinomial(
+                # s0, num_neg, replacement=True)  # num_q x neg
+            try:
+                k0 = torch.multinomial(s0, num_neg, replacement=True)  # num_q x neg
+            except:
+                ttt = 1
+                import pdb; pdb.set_trace()
             p0 = torch.gather(r0, -1, k0)     # num_q * neg
             subwkk = self.wkk[k0, :]          # num_q x neg x K1
             s1 = subwkk * r1s.unsqueeze(1)     # num_q x neg x K1
-            k1 = torch.multinomial(
-                s1.view(-1, s1.size(-1)), 1).squeeze(-1).view(*s1.shape[:-1])  # num_q x neg
+            # k1 = torch.multinomial(
+                # s1.view(-1, s1.size(-1)), 1).squeeze(-1).view(*s1.shape[:-1])  # num_q x neg
+            try:
+                k1 = torch.multinomial(s1.view(-1, s1.size(-1)), 1).squeeze(-1).view(*s1.shape[:-1])  # num_q x neg
+            except:
+                ttt = 1
+                import pdb; pdb.set_trace()
             p1 = torch.gather(r1, -1, k1)  # num_q x neg
             k01 = k0 * self.K + k1  # num_q x neg
             p01 = p0 + p1
@@ -141,44 +151,23 @@ class MIDXProductSampler(Sampler):
         neg_prob = p01
         return neg_items, neg_prob
 
+    def encoding(self, emb_vector:torch.Tensor, hard:bool=True):
+        """
+        to calculate the softmax prob
+        """
+        emb1, emb2 = torch.chunk(emb_vector, 2, dim=-1)
+        res1 = self._encode(emb1, self.c0, hard=True)
+        res2 = self._encode(emb2, self.c1, hard=True)
+        return torch.cat([res1, res2], dim=-1)
 
-
-    def _sample_item_with_pop(self, k01, p01):
-        # k01 num_q x neg, p01 num_q x neg
-        start = self.indptr[k01]
-        last = self.indptr[k01 + 1] - 1
-        count = last - start + 1
-        maxlen = count.max()
-        fullrange = start.unsqueeze(-1) + torch.arange(
-            maxlen, device=start.device).reshape(1, 1, maxlen)  # num_q x neg x maxlen
-        fullrange = torch.minimum(fullrange, last.unsqueeze(-1))
-        # @todo replace searchsorted with torch.bucketize
-        item_idx = torch.searchsorted(self.cp[fullrange], torch.rand_like(
-            p01).unsqueeze(-1)).squeeze(-1)  # num_q x neg
-        # item_idx = torch.minimum(item_idx, last)
-        neg_items = self.indices[item_idx + self.indptr[k01]] + 1
-        # plus 1 due to considering padding, since p include num_items + 1 entries
-        neg_probs = self.p[neg_items]
-        return neg_items, p01 + torch.log(neg_probs)
-        
-        
-    def _sample_item_with_pop(self, k01, p01):
-        # k01 num_q x neg, p01 num_q x neg
-        start = self.indptr[k01]
-        last = self.indptr[k01 + 1] - 1
-        count = last - start + 1
-        maxlen = count.max()
-        fullrange = start.unsqueeze(-1) + torch.arange(
-            maxlen, device=start.device).reshape(1, 1, maxlen)  # num_q x neg x maxlen
-        fullrange = torch.minimum(fullrange, last.unsqueeze(-1))
-        # @todo replace searchsorted with torch.bucketize
-        item_idx = torch.searchsorted(self.cp[fullrange], torch.rand_like(
-            p01).unsqueeze(-1)).squeeze(-1)  # num_q x neg
-        # item_idx = torch.minimum(item_idx, last)
-        neg_items = self.indices[item_idx + self.indptr[k01]] + 1
-        # plus 1 due to considering padding, since p include num_items + 1 entries
-        neg_probs = self.p[neg_items]
-        return neg_items, p01 + torch.log(neg_probs)
+    def _encode(self, emb_vec, codebook, hard=True):
+        """
+        encode the emb_vec with the codebook
+        """
+        assert hard == True
+        res = torch.cdist(emb_vec, codebook)  # B x L x D || K x D
+        index = res.min(dim=-1)
+        return codebook[index.indices, :]
         
 
     def compute_item_p(self, query, pos_items):
@@ -226,6 +215,11 @@ class MIDXResidualSampler(MIDXProductSampler):
         cd01 = cd0 * self.K + cd1
         self.indices, self.indptr = construct_index(cd01, self.K**2)
         self._update(item_embs, cd0m, cd1m)
+    
+    def encoding(self, emb_vector:torch.Tensor, hard:bool=True):
+        res1 = self._encode(emb_vector, self.c0, hard)
+        res2 = self._encode(emb_vector - res1, self.c1, hard)
+        return torch.add(res1, res2)
 
 
 
@@ -268,7 +262,7 @@ class MIDXSamplerLearnProduct(MIDXProductSampler):
     #     output = (weight.unsqueeze(-1) * codebook).sum(-2)
     #     return output
     
-    def _encode(self, emb_vec, codebook, hard=False):
+    def _encode(self, emb_vec, codebook, hard=False, tau=0.1):
         # V2: use the inner product to calculate the similarity
         # emb_vec: B x L x D or N x D
         # codebook: K x D
@@ -282,10 +276,13 @@ class MIDXSamplerLearnProduct(MIDXProductSampler):
             elif emb_vec.dim() == 4:
                 # B x L x N x D,  K x D
                 logit = torch.einsum('blnd,kd->blnk', emb_vec, codebook)
+        logit = F.softmax(logit / tau, dim=-1)
         if hard:
-            weight = torch.nn.functional.gumbel_softmax(logit, tau=1.0, hard=True, dim=-1).detach()
+            weight_hard = torch.eq(logit, torch.max(logit, dim=-1, keepdim=True)[0]).long()
+            weight_soft = logit
+            weight = (weight_hard - weight_soft).detach() + weight_soft
         else:
-            weight = torch.nn.functional.gumbel_softmax(logit, tau=1.0, hard=False, dim=-1).detach()
+            weight = logit.detach()
         return (weight.unsqueeze(-1) * codebook).sum(-2)
         
 

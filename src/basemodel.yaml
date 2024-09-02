@@ -32,5 +32,6 @@ rff_temp: 4.0
 rff_dim: 32
 lsh_bits: 4
 lsh_tables: 16
+kl_loss_coef: 1.0
 
 sampler_update_step: ~  # how many steps to update sampler per epoch

@@ -44,6 +44,7 @@ class BaseModel(LightningModule):
         parent_parser.add_argument('--lsh_bits', type=int, default=4, help='number of bits for lsh sampler')
         parent_parser.add_argument('--lsh_tables', type=int, default=16, help='number of tables for lsh sampler')
         parent_parser.add_argument('--sampler_update_step', type=int, default=100, help='update frequency for sampler')
+        parent_parser.add_argument('--kl_loss_coef', type=float, default=1.0, help='coefficient for kl loss')
         return parent_parser
 
 
@@ -188,7 +189,7 @@ class BaseModel(LightningModule):
         else: # full softmax
             output['full_score'] = self.score_fn(query, self.item_vector)
         
-        sampler_class_list = [MIDXSamplerLearnProduct, MIDXSamplerLearnResidual]
+        sampler_class_list = [MIDXProductSampler, MIDXResidualSampler, MIDXSamplerLearnProduct, MIDXSamplerLearnResidual]
         if any([isinstance(self.sampler, cls) for cls in sampler_class_list]):
             # get the quantization loss for optimization
             # pos_vec_ = self.sampler.encoding(pos_vec.detach())
@@ -227,7 +228,7 @@ class BaseModel(LightningModule):
             full_score_quant = self.score_fn(query.detach(), item_vec_)
             full_quant_sp = F.log_softmax(full_score_quant, dim=-1) # avoid inf or nan
             N = self.item_vector.size(0)
-            loss_kl = torch.nn.functional.kl_div(full_sp.reshape(-1, N), full_quant_sp.reshape(-1, N), reduction='batchmean', log_target=True) # target is log_softmax
+            loss_kl = torch.nn.functional.kl_div(full_quant_sp.reshape(-1, N), full_sp.reshape(-1, N), reduction='batchmean', log_target=True) # target is log_softmax
             dis = torch.nn.PairwiseDistance()(self.item_vector.detach(), item_vec_).mean()
             output_quantizer['reconstract_loss'] = dis
             output_quantizer['kl_div'] = loss_kl
@@ -255,7 +256,12 @@ class BaseModel(LightningModule):
             self.log('ssl_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
             self.log('recons_loss', loss_q, on_step=False, on_epoch=True, prog_bar=True)
             self.log('kl_loss', loss_kl, on_step=False, on_epoch=True, prog_bar=True)
-            return {"loss": loss + loss_q + loss_kl} 
+            # add a coefficient for kl_loss
+            loss_kl = loss_kl * self.config['kl_loss_coef']
+            if isinstance(self.sampler, MIDXSamplerLearnProduct) or isinstance(self.sampler, MIDXSamplerLearnResidual):
+                return {"loss": loss + loss_q + loss_kl}
+            elif isinstance(self.sampler, MIDXProductSampler) or isinstance(self.sampler, MIDXResidualSampler):
+                return {"loss": loss }
         else:
             loss = self.loss_fn(**output)
             self.log('ssl_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
